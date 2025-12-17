@@ -32,8 +32,8 @@ A KQL Job is a scheduled query in Microsoft Sentinel Data Lake that runs KQL log
 1. Navigate to **Microsoft Sentinel** → **Data Lake Exploration** → **Jobs** → **Create**
 2. Enter Job Name, Description and Workspace
 3. Choose to create new table with name `Signinlogs_Anomalies_KQL_CL`
-4. On the query page, copy the KQL query from `docs/Signinlogs_Anomalies_KQL_CL.md`
-5. Set schedule: **Run every 1 hour**, save changes
+4. On the query page, copy the KQL query from `docs/Signinlogs_Anomalies_KQL_CL.md` modify time ranges if needed
+5. Set schedule: **Run every 1 hour (or 1 day to save costs)**, save changes
 6. Wait 24 hours for initial baseline data population
 
 **📚 Reference:** [Microsoft Sentinel Data Lake KQL Jobs Documentation](https://learn.microsoft.com/en-us/azure/sentinel/datalake/kql-jobs)
