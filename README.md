@@ -24,6 +24,9 @@ This system depends on a **custom Sentinel table** (`Signinlogs_Anomalies_KQL_CL
 **What is a KQL Job?**  
 A KQL Job is a scheduled query in Microsoft Sentinel Data Lake that runs KQL logic on a recurring schedule and writes results to a custom table. This is different from scheduled analytics rules - jobs are designed for data transformation and enrichment.
 
+**KQL Job Costs**  
+As this job does regular queries of the AADNonInteractiveSignInLogs and SigninLogs tables over large periods (ie 90d), you should test it and understand the query costs depending on the size of your environment. You can always scale it back to run daily instead, though if you do, you should have GitHub Copilot update the severity calculations in the query as the ArtifactHits would be higher when aggregated daily instead of hourly.
+
 **📖 See [docs/Signinlogs_Anomalies_KQL_CL.md](docs/Signinlogs_Anomalies_KQL_CL.md) for:**
 - Complete KQL job code (copy-paste ready)
 - Table schema documentation
