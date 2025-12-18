@@ -13,7 +13,9 @@ A Proof of Concept investigation automation system that leverages **GitHub Copil
 
 ## ⚠️ CRITICAL PREREQUISITE
 
-**Before running any investigation, you MUST set up the anomaly detection KQL job in Microsoft Sentinel:**
+**Before running any investigation, you MUST set up the anomaly detection KQL job in Microsoft Sentinel Data Lake:**
+
+If you choose not to deploy this prerequisite, just ask GitHub Copilot to remove references to this table from the copilot-instructions file. Instead of the user investigation using the custom Anomalous IP's table from this job, it will simply use Risky and Common IP's which come from out of the box tables.
 
 ### Required: Signinlogs_Anomalies_KQL_CL Table
 
