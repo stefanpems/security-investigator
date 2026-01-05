@@ -1247,9 +1247,9 @@ Returns: riskLevel (low/medium/high/none), riskState (atRisk/confirmedCompromise
 **Step 3: Get Risk Detections**
 ```
 mcp_microsoft_mcp_microsoft_graph_suggest_queries("get risk detections for user")
-mcp_microsoft_mcp_microsoft_graph_get("/v1.0/identityProtection/riskDetections?$filter=userId eq '<USER_ID>'&$select=id,detectedDateTime,riskEventType,riskLevel,riskState,riskDetail,ipAddress,location,activity,activityDateTime&$orderby=detectedDateTime desc&$top=5")
+mcp_microsoft_mcp_microsoft_graph_get("/v1.0/identityProtection/riskDetections?$filter=userId eq '<USER_ID>'&$select=id,detectedDateTime,riskEventType,riskLevel,riskState,riskDetail,ipAddress,location,activity,activityDateTime&$orderby=detectedDateTime desc&$top=10")
 ```
-Returns: Array of risk events (top 5 most recent) with riskEventType (unlikelyTravel, unfamiliarFeatures, anonymizedIPAddress, maliciousIPAddress, etc.), riskState, riskLevel, detectedDateTime, activity, ipAddress, location
+Returns: Array of risk events (top 10 most recent) with riskEventType (unlikelyTravel, unfamiliarFeatures, anonymizedIPAddress, maliciousIPAddress, etc.), riskState, riskLevel, detectedDateTime, activity, ipAddress, location
 
 **Step 4: Get Risky Sign-ins**
 ```
