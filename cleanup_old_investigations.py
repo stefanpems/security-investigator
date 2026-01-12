@@ -40,6 +40,10 @@ def cleanup_old_investigations(temp_dir: str = "temp", reports_dir: str = "repor
             if not filename.startswith("investigation_") or not filename.endswith(".json"):
                 continue
             
+            # Skip SCRUBBED files - these are sanitized for GitHub commits
+            if "SCRUBBED" in filename:
+                continue
+            
             filepath = os.path.join(temp_dir, filename)
             
             # Get file modification time
@@ -71,6 +75,10 @@ def cleanup_old_investigations(temp_dir: str = "temp", reports_dir: str = "repor
         for filename in os.listdir(reports_dir):
             # Only process investigation report HTML files
             if not filename.startswith("Investigation_Report_") or not filename.endswith(".html"):
+                continue
+            
+            # Skip SCRUBBED files - these are sanitized for GitHub commits
+            if "SCRUBBED" in filename:
                 continue
             
             filepath = os.path.join(reports_dir, filename)
