@@ -71,9 +71,16 @@ Without these MCP servers, this skill cannot access schema information or offici
    - Microsoft Learn code samples (official patterns)
    - Community queries (real-world examples)
 
-4. **ALWAYS validate before execution** - Use `mcp_kql-search_validate_kql_query` if available
+4. **ALWAYS test queries against Sentinel** - Use `mcp_sentinel-data_query_lake` to:
+   - Validate query syntax against real environment
+   - Verify columns exist and data is present
+   - Test aggregations and calculations work correctly
+   - Provide real results to show user what to expect
+   - **This is the MOST IMPORTANT validation step**
 
-5. **ALWAYS provide context** - Include:
+5. **ALWAYS validate syntax** (if live testing unavailable) - Use `mcp_kql-search_validate_kql_query` as fallback
+
+6. **ALWAYS provide context** - Include:
    - What the query does
    - Expected results
    - Any limitations or notes
@@ -198,12 +205,72 @@ mcp_kql-search_search_kql_queries(
 2. ✅ Verify time column (`TimeGenerated` vs `Timestamp`)
 3. ✅ Include comments explaining logic
 4. ✅ Add `take` or `summarize` to limit results
-5. ✅ Test syntax if possible with validation tool
+5. ✅ **VALIDATE AGAINST SENTINEL MCP SERVER** (if available)
+6. ✅ Test syntax with validation tool (if schema-only validation needed)
 
-**Optional validation:**
+**🔥 CRITICAL: Always Test Queries Against Live Data**
+
+**When Sentinel MCP Server is available, ALWAYS run queries to validate:**
+
+```
+mcp_sentinel-data_query_lake(
+  query: "<your_complete_kql_query>",
+  workspaceId: "<workspace_id_if_multiple>"  // Optional
+)
+```
+
+**Why this is critical:**
+- ✅ Validates query syntax against real Sentinel environment
+- ✅ Confirms columns exist and are correctly typed
+- ✅ Verifies data is present in the table
+- ✅ Tests aggregations and calculations work correctly
+- ✅ Reveals actual data patterns and edge cases
+- ✅ Provides real results to show user what to expect
+
+**Validation workflow:**
+
+1. **Generate query** based on schema, docs, and examples
+2. **Test query** using `mcp_sentinel-data_query_lake` with `| take 10` or `| take 5` limit
+3. **Verify results** are sensible and expected
+4. **Fix issues** if query fails or returns unexpected results
+5. **Re-test** until query works correctly
+6. **Provide to user** with confidence it will work
+
+**Best practices for testing:**
+
+- **Add `| take 10`** to limit results during testing (remove or adjust for user)
+- **Test multiple queries in parallel** if providing multiple standalone queries
+- **Check for empty results** - may indicate wrong table, time range, or filters
+- **Verify calculations** - check that percentages, counts, and aggregations make sense
+- **Review actual data values** - ensure field names and data types match expectations
+
+**Example testing pattern:**
+
+```kql
+// Test Query: Sign-ins by user with CA status
+SigninLogs
+| where TimeGenerated > ago(7d)
+| summarize 
+    TotalSignIns = count(),
+    CASuccess = countif(ConditionalAccessStatus == "success"),
+    CAFailure = countif(ConditionalAccessStatus == "failure")
+    by UserPrincipalName
+| order by TotalSignIns desc
+| take 5  // Limit for testing
+```
+
+**If query fails:**
+- Check error message for column name issues
+- Verify table exists in environment
+- Confirm time range has data
+- Review filter syntax
+- Check for typos in field names
+
+**Schema-only validation (fallback):**
 ```
 mcp_kql-search_validate_kql_query("<your_query>")
 ```
+**Note:** This only validates syntax and schema, not against live data. Prefer `mcp_sentinel-data_query_lake` when available.
 
 ---
 
@@ -288,6 +355,84 @@ mcp_kql-search_validate_kql_query("<your_query>")
 - Surrounding documentation
 - Repository context
 - Relevance scores
+
+---
+
+### mcp_sentinel-data_query_lake
+
+**Purpose:** Execute KQL queries against live Microsoft Sentinel workspace for validation and testing
+
+**When to use:**
+- **ALWAYS when generating queries** - validate against real data
+- Testing query syntax and logic
+- Verifying columns exist and are correctly typed
+- Confirming data is present in tables
+- Validating aggregations and calculations
+- Spot-checking query results before providing to user
+
+**Input:**
+```json
+{
+  "query": "SigninLogs | where TimeGenerated > ago(7d) | summarize count() by UserPrincipalName | take 10",
+  "workspaceId": "optional-workspace-guid-if-multiple"
+}
+```
+
+**Returns:**
+- Query results in structured format
+- Column names and data types
+- Actual data rows
+- Query statistics (execution time, resource usage)
+- Error messages if query fails
+
+**Best practices:**
+- Add `| take 10` or `| take 5` during testing to limit results
+- Test multiple queries in parallel when providing multiple standalone queries
+- Check for empty results (may indicate wrong table/time range/filters)
+- Verify calculations and aggregations are correct
+- Review actual data values to ensure fields match expectations
+
+**Example usage:**
+```
+// Test query before providing to user
+mcp_sentinel-data_query_lake(
+  query: "SigninLogs | where TimeGenerated > ago(7d) | summarize TotalSignIns = count(), UniqueApps = dcount(AppDisplayName) by UserPrincipalName | order by TotalSignIns desc | take 5"
+)
+```
+
+**Critical notes:**
+- This executes against **LIVE production data** - queries affect workspace resources
+- Always use appropriate time ranges and result limits
+- Failed queries return error messages to help debug issues
+- Prefer this over schema-only validation when available
+
+---
+
+### mcp_sentinel-data_search_tables
+
+**Purpose:** Discover relevant Sentinel tables using natural language queries
+
+**When to use:**
+- User request is ambiguous about which table to use
+- Need to find tables for specific scenarios
+- Exploring available data sources
+- Confirming table availability in workspace
+
+**Input:**
+```json
+{
+  "query": "sign-in authentication Azure AD user activity",
+  "workspaceId": "optional-workspace-guid-if-multiple"
+}
+```
+
+**Returns:**
+- Relevant table names
+- Table schemas
+- Descriptions of table contents
+- Availability in workspace
+
+**Use case:** "I need to query user sign-in data" → Tool suggests `SigninLogs`, `AADNonInteractiveUserSignInLogs`
 
 **Search tips:**
 - Use natural language
