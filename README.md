@@ -715,9 +715,11 @@ Was MFA used for those authentications?
 
 ## 🔌 MCP Server Integration
 
-The system **requires** three Model Context Protocol (MCP) servers for Sentinel, Graph API, and Defender XDR integration:
+The system **requires** three Model Context Protocol (MCP) servers for Sentinel, Graph API, and Defender XDR integration. Two additional MCP servers are **recommended** for KQL query authoring capabilities.
 
-### 1. Microsoft Sentinel MCP Server (`mcp-sentinel-mcp-2`)
+### Required MCP Servers
+
+#### 1. Microsoft Sentinel MCP Server (`mcp-sentinel-mcp-2`)
 
 **📖 Installation Guide**: [Get started with Microsoft Sentinel MCP Server](https://learn.microsoft.com/en-us/copilot/security/developer/mcp-get-started)
 
@@ -736,7 +738,7 @@ mcp_sentinel-mcp-2_query_lake(query="SigninLogs | where TimeGenerated > ago(1h) 
 - **Sentinel Reader** (recommended) - For full investigation capabilities
 - **Sentinel Contributor** - For watchlist management (optional)
 
-### 2. MCP Server for Microsoft Graph (`mcp-microsoft`)
+#### 2. MCP Server for Microsoft Graph (`mcp-microsoft`)
 
 **📖 Installation Guide**: [Get started with MCP Server for Microsoft Graph](https://learn.microsoft.com/en-us/graph/mcp-server/get-started?tabs=http%2Cvscode)
 
@@ -757,7 +759,7 @@ mcp_microsoft_mcp_microsoft_graph_get("/v1.0/users/user@domain.com?$select=id,di
 - **Device.Read.All** - Read device compliance and enrollment
 - **IdentityRiskEvent.Read.All** - Read Identity Protection risk detections
 
-### 3. Microsoft Sentinel Triage MCP Server (`mcp-sentinel-tria`)
+#### 3. Microsoft Sentinel Triage MCP Server (`mcp-sentinel-tria`)
 
 **📖 Installation Guide**: [Microsoft Sentinel Triage MCP Server](https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-triage-tool)
 
@@ -795,22 +797,134 @@ mcp_sentinel-tria_GetDefenderMachineVulnerabilities({"id": "<MDE_MACHINE_ID>"})
 - **Threat hunting** - Cross-device correlation using Advanced Hunting
 - **Incident triage** - Automated alert and incident analysis
 
+### Recommended MCP Servers (for KQL Query Authoring)
+
+These MCP servers enhance the **kql-query-authoring** skill with schema validation, community examples, and official documentation.
+
+#### 4. KQL Search MCP Server (`kql-search`)
+
+**📖 Installation Guide**: [KQL Search MCP on NPM](https://www.npmjs.com/package/kql-search-mcp)
+
+A Model Context Protocol server that searches GitHub for KQL queries using natural language, with built-in schema intelligence for 331+ KQL tables.
+
+**Installation Options:**
+
+**Option A: VS Code Extension (Recommended - No Node.js required)**
+1. Open Extensions panel in VS Code (Ctrl+Shift+X)
+2. Search for "KQL Search MCP"
+3. Click Install
+4. Run `KQL Search MCP: Set GitHub Token` from Command Palette
+
+**Option B: NPX Configuration (`.vscode/mcp.json`)**
+```json
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "github-token",
+      "description": "GitHub Personal Access Token",
+      "password": true
+    }
+  ],
+  "servers": {
+    "kql-search": {
+      "command": "npx",
+      "args": ["-y", "kql-search-mcp"],
+      "env": {
+        "GITHUB_TOKEN": "${input:github-token}",
+        "FAVORITE_REPOS": "Azure/Azure-Sentinel,microsoft/Microsoft-365-Defender-Hunting-Queries"
+      }
+    }
+  }
+}
+```
+
+**Prerequisites:**
+- GitHub Personal Access Token with `public_repo` scope ([Create token](https://github.com/settings/tokens/new))
+
+**Tools provided (34 total):**
+- **Schema Intelligence (8 tools):** `get_table_schema`, `search_tables`, `list_table_categories`, `get_tables_by_category`, `generate_query_template`, `generate_query_from_natural_language`, `find_column`, `get_schema_statistics`
+- **Query Validation (5 tools):** `generate_kql_query`, `validate_kql_query`, `get_query_documentation`, `check_microsoft_docs_mcp`, `search_github_examples_fallback`
+- **GitHub Search (8 tools):** `search_kql_queries`, `get_kql_from_file`, `search_kql_repositories`, `get_rate_limit`, `search_repo_kql_queries`, `search_user_kql_queries`, `search_favorite_repos`, `get_cache_stats`
+- **ASIM Schema (13 tools):** `list_asim_schemas`, `get_asim_schema_info`, `get_asim_field_info`, `generate_asim_query_template`, `validate_asim_parser`, `compare_parser_to_schema`, and more
+
+**Key Features:**
+- 331+ indexed tables from Microsoft Defender XDR, Microsoft Sentinel, and Azure Monitor
+- Schema-validated query generation (table names, column names, data types verified)
+- Natural language table search ("find authentication events", "show email security tables")
+- ASIM (Advanced Security Information Model) support with 11 GA schemas
+- GitHub search across all public repositories for KQL examples
+- Smart caching and rate limit management
+
+#### 5. Microsoft Learn MCP Server (`microsoft-learn`)
+
+**📖 Installation Guide**: [Microsoft Learn MCP on GitHub](https://github.com/MicrosoftDocs/mcp)
+
+Official Microsoft Learn MCP Server providing real-time access to Microsoft's official documentation and code samples.
+
+**Installation:**
+
+**Option A: VS Code One-Click Install**
+- [Install in VS Code](https://vscode.dev/redirect/mcp/install?name=microsoft-learn&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Flearn.microsoft.com%2Fapi%2Fmcp%22%7D)
+
+**Option B: Manual Configuration (`.vscode/mcp.json`)**
+```json
+{
+  "servers": {
+    "microsoft-learn": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp"
+    }
+  }
+}
+```
+
+**Prerequisites:**
+- None! Free, no API key required, cloud-hosted by Microsoft
+
+**Tools provided:**
+- `microsoft_docs_search` - Semantic search across Microsoft Learn documentation
+- `microsoft_docs_fetch` - Fetch full documentation pages in markdown format
+- `microsoft_code_sample_search` - Find official Microsoft/Azure code snippets with language filtering
+
+**Key Features:**
+- 🧠 **Eliminate hallucinations** - Stop AI from inventing non-existent SDK methods
+- 🔌 **Plug & Play** - No API keys, no logins, no sign-ups required
+- 🛡️ **100% Trusted** - Only accesses official 1st-party Microsoft documentation
+- 💸 **Completely Free** - High search capacity for seamless coding sessions
+
+**Why use both KQL Search + Microsoft Learn together:**
+| Capability | KQL Search MCP | Microsoft Learn MCP | Combined |
+|------------|----------------|---------------------|----------|
+| Query Generation | ✅ 100% validated against schemas | ❌ No schema knowledge | ✅ Validated + docs |
+| Schema Information | ✅ Structured table/column data | ❌ No structured schemas | ✅ Best of both |
+| Latest Documentation | ✅ Weekly schema checks | ✅ Always current | ✅ Verified with docs |
+| Query Examples | ✅ GitHub search | ✅ Official Microsoft examples | ✅ Maximum coverage |
+
 ### Setup Verification
 
-After installing all three MCP servers, verify they're working:
+After installing the MCP servers, verify they're working:
 
 ```powershell
-# Test Sentinel MCP
+# Test Sentinel MCP (Required)
 mcp_sentinel-mcp-2_list_sentinel_workspaces()
 # Expected: Array with your workspace name/ID
 
-# Test Graph MCP
+# Test Graph MCP (Required)
 mcp_microsoft_mcp_microsoft_graph_get("/v1.0/me?$select=displayName")
 # Expected: JSON with your display name
 
-# Test Sentinel Triage MCP (Advanced Hunting)
+# Test Sentinel Triage MCP (Required for honeypot investigations)
 mcp_sentinel-tria_FetchAdvancedHuntingTablesOverview({"tableNames": ["DeviceInfo"]})
 # Expected: Schema information for DeviceInfo table
+
+# Test KQL Search MCP (Recommended for KQL authoring)
+mcp_kql-search_get_schema_statistics()
+# Expected: Statistics showing 331+ tables indexed
+
+# Test Microsoft Learn MCP (Recommended for documentation)
+mcp_microsoft-lea_microsoft_docs_search({"query": "KQL query language"})
+# Expected: Search results from Microsoft Learn
 ```
 
 **Authentication:**
