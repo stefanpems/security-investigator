@@ -101,15 +101,48 @@ This workspace contains a security investigation automation system. GitHub Copil
 
 The investigation system integrates with these MCP servers (which Copilot has access to):
 
-### Microsoft Sentinel MCP
-- **mcp_sentinel-mcp-2_query_lake**: Execute KQL queries
-- **mcp_sentinel-mcp-2_search_tables**: Discover table schemas
-- **mcp_sentinel-mcp-2_list_sentinel_workspaces**: List available workspaces
+### Microsoft Sentinel Data Lake MCP
+Execute KQL queries and explore table schemas directly against your Sentinel workspace:
+- **mcp_sentinel-data_query_lake**: Execute read-only KQL queries on Sentinel data lake tables. Best practices: filter on datetime first, use `take` or `summarize` operators to limit results, prefer narrowly scoped queries with explicit filters
+- **mcp_sentinel-data_search_tables**: Discover table schemas using natural language queries. Returns table definitions to support query authoring
+- **mcp_sentinel-data_list_sentinel_workspaces**: List all available Sentinel workspace name/ID pairs
+- **Documentation**: https://learn.microsoft.com/en-us/azure/sentinel/datalake/
+
+### Microsoft Sentinel Triage MCP
+Incident investigation and threat hunting tools for Defender XDR and Sentinel:
+- **Incident Management**: List/get incidents (`ListIncidents`, `GetIncidentById`), list/get alerts (`ListAlerts`, `GetAlertByID`)
+- **Advanced Hunting**: Run KQL queries across Defender tables (`RunAdvancedHuntingQuery`), fetch table schemas (`FetchAdvancedHuntingTablesOverview`, `FetchAdvancedHuntingTablesDetailedSchema`)
+- **Entity Investigation**: File info/stats/alerts (`GetDefenderFileInfo`, `GetDefenderFileStatistics`, `GetDefenderFileAlerts`), device details (`GetDefenderMachine`, `GetDefenderMachineAlerts`, `GetDefenderMachineLoggedOnUsers`), IP analysis (`GetDefenderIpAlerts`, `GetDefenderIpStatistics`), user activity (`ListUserRelatedAlerts`, `ListUserRelatedMachines`)
+- **Vulnerability Management**: List affected devices (`ListDefenderMachinesByVulnerability`), software vulnerabilities (`ListDefenderVulnerabilitiesBySoftware`)
+- **Remediation**: List/get remediation tasks (`ListDefenderRemediationActivities`, `GetDefenderRemediationActivity`)
+- **When to Use**: Incident triage, threat hunting over your own Defender/Sentinel data, correlating alerts/entities during investigations
+- **Documentation**: https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-triage-tool
+
+### KQL Search MCP
+GitHub-powered KQL query discovery and schema intelligence (331+ tables from Defender XDR, Sentinel, Azure Monitor):
+- **GitHub Query Discovery**: Search all public repos for KQL queries using natural language (`search_kql_queries`), extract queries from specific files (`get_kql_from_file`), search favorite repos (`search_favorite_repos`)
+- **Schema Intelligence**: Get table schemas (`get_table_schema`), search tables by description (`search_tables`), find columns (`find_column`), list categories (`list_table_categories`)
+- **Query Generation & Validation**: Generate validated KQL queries from natural language (`generate_kql_query`), validate existing queries (`validate_kql_query`), get Microsoft Learn docs (`get_query_documentation`)
+- **ASIM Schema Support**: Search/validate/generate queries for 11 ASIM schemas (`search_asim_schemas`, `get_asim_schema_info`, `validate_asim_parser`, `generate_asim_query_template`)
+- **When to Use**: Writing new KQL queries, finding query examples from community repos (Azure-Sentinel, Microsoft-365-Defender-Hunting-Queries), validating query syntax before execution, understanding table schemas
+- **Documentation**: https://www.npmjs.com/package/kql-search-mcp
+
+### Microsoft Learn MCP
+Official Microsoft/Azure documentation search and code samples:
+- **microsoft_docs_search**: Semantic search across Microsoft Learn documentation (returns up to 10 high-quality content chunks with title, URL, excerpt)
+- **microsoft_docs_fetch**: Fetch complete Microsoft Learn pages in markdown format (use after search when you need full tutorials, troubleshooting guides, or complete documentation)
+- **microsoft_code_sample_search**: Search official Microsoft/Azure code samples (up to 20 relevant code snippets with optional `language` filter: csharp, javascript, typescript, python, powershell, azurecli, sql, java, kusto, etc.)
+- **When to Use**: Grounding answers in official Microsoft knowledge, finding latest Azure/Microsoft 365/Security documentation, getting official code examples for Microsoft technologies, verifying API usage patterns
+- **Workflow**: Use `microsoft_docs_search` first for breadth → `microsoft_code_sample_search` for practical examples → `microsoft_docs_fetch` for depth when needed
+- **Documentation**: https://learn.microsoft.com/en-us/training/support/mcp-get-started
 
 ### Microsoft Graph MCP
-- **mcp_microsoft_mcp_microsoft_graph_suggest_queries**: Find Graph API endpoints
-- **mcp_microsoft_mcp_microsoft_graph_get**: Execute Graph API calls
-- **mcp_microsoft_mcp_microsoft_graph_list_properties**: Explore entity schemas
+Azure AD and Microsoft 365 API integration:
+- **mcp_microsoft_mcp_microsoft_graph_suggest_queries**: Find Graph API endpoints using natural language intent descriptions
+- **mcp_microsoft_mcp_microsoft_graph_get**: Execute Graph API calls (MUST call suggest_queries first to get correct endpoints)
+- **mcp_microsoft_mcp_microsoft_graph_list_properties**: Explore entity schemas when RAG examples are insufficient
+- **Critical Workflow**: ALWAYS call `suggest_queries` before `get` - never construct URLs from memory. Resolve template variables before making final API calls
+- **Documentation**: Built-in Graph MCP integration
 
 ### Custom Sentinel Tables
 
