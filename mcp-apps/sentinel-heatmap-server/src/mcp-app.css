@@ -1,0 +1,369 @@
+/* Sentinel Heatmap Styles */
+:root {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #2d2d2d;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --border-color: #404040;
+  --accent-blue: #0078d4;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  padding: 8px;
+}
+
+.loading, .empty, .error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--text-secondary);
+}
+
+.error {
+  color: #f65314;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.heatmap-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.heatmap-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.heatmap-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.heatmap-stats strong {
+  color: var(--text-primary);
+}
+
+.heatmap-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.heatmap-table {
+  border-collapse: collapse;
+  font-size: 10px;
+  min-width: 100%;
+}
+
+.heatmap-table th,
+.heatmap-table td {
+  padding: 4px 6px;
+  text-align: center;
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.corner-cell {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+
+.col-header {
+  background: var(--bg-secondary);
+  font-weight: 500;
+  color: var(--text-secondary);
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-header {
+  background: var(--bg-secondary);
+  font-weight: 500;
+  text-align: left;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.heatmap-cell {
+  min-width: 40px;
+  color: white;
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.heatmap-cell:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 8px rgba(255,255,255,0.3);
+  z-index: 10;
+  position: relative;
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.legend-gradient {
+  width: 100px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.legend-swatch {
+  width: 20px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--border-color);
+}
+
+.legend-label {
+  white-space: nowrap;
+}
+
+.heatmap-footer {
+  font-size: 9px;
+  color: var(--text-secondary);
+  text-align: right;
+  margin-top: 4px;
+}
+
+/* Wrapper for heatmap + panel layout */
+.heatmap-wrapper {
+  display: flex;
+  gap: 12px;
+}
+
+.heatmap-wrapper.with-panel .heatmap-container {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Clickable row styles */
+.row-clickable {
+  cursor: pointer;
+}
+
+.row-clickable:hover td {
+  background-color: rgba(0, 120, 212, 0.1);
+}
+
+.row-clickable:hover .row-header {
+  background-color: rgba(0, 120, 212, 0.2);
+}
+
+.row-selected td {
+  background-color: rgba(0, 120, 212, 0.15) !important;
+}
+
+.row-selected .row-header {
+  background-color: var(--accent-blue) !important;
+  color: white;
+}
+
+.enrichment-hint-inline {
+  color: var(--accent-blue);
+  font-style: italic;
+}
+
+/* Enrichment Panel */
+.enrichment-panel {
+  width: 280px;
+  min-width: 280px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.enrichment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.enrichment-title {
+  font-weight: 600;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.enrichment-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.enrichment-close:hover {
+  color: var(--text-primary);
+}
+
+.enrichment-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.enrichment-label {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.enrichment-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.enrichment-nodata {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.enrichment-hint {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+/* Flags (VPN, Proxy, Tor) */
+.enrichment-flags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.flag {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.flag-vpn {
+  background: #5f4b8b;
+  color: white;
+}
+
+.flag-proxy {
+  background: #ff8c00;
+  color: white;
+}
+
+.flag-tor {
+  background: #7d4698;
+  color: white;
+}
+
+/* Abuse meter */
+.abuse-meter {
+  position: relative;
+  height: 16px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.abuse-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.abuse-score {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-weight: 600;
+  font-size: 10px;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+/* Threat tags */
+.threat-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.threat-tag {
+  padding: 2px 6px;
+  background: rgba(246, 83, 20, 0.2);
+  color: #f65314;
+  border-radius: 3px;
+  font-size: 9px;
+}
+
+/* Light mode support */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f5;
+    --text-primary: #1a1a1a;
+    --text-secondary: #666666;
+    --border-color: #e0e0e0;
+  }
+  
+  .heatmap-cell {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+}
