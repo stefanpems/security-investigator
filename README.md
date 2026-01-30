@@ -96,7 +96,7 @@ security-investigator/
 
 #### Required MCP Servers (CRITICAL - Must Install First)
 
-This system **requires three MCP servers** to be installed and configured in VS Code:
+This system **requires five MCP servers** to be installed and configured in VS Code:
 
 1. **Microsoft Sentinel MCP Server** - For querying Sentinel logs and threat intel
    - 📖 **Setup Guide**: [Get started with Microsoft Sentinel MCP Server](https://learn.microsoft.com/en-us/copilot/security/developer/mcp-get-started)
@@ -114,13 +114,25 @@ This system **requires three MCP servers** to be installed and configured in VS 
    - Requires: Microsoft Defender for Endpoint API permissions, SecurityReader role minimum
    - **Required for honeypot investigations** - Enables vulnerability scanning and Advanced Hunting queries
 
+4. **KQL Search MCP Server** - For KQL query authoring with schema validation
+   - 📖 **Setup Guide**: [KQL Search MCP on NPM](https://www.npmjs.com/package/kql-search-mcp)
+   - Provides: `get_table_schema`, `search_tables`, `validate_kql_query`, `search_github_examples_fallback`, and 30+ query authoring tools
+   - Requires: GitHub Personal Access Token with `public_repo` scope
+   - **Required for kql-query-authoring skill** - Provides schema validation for 331+ tables
+
+5. **Microsoft Learn MCP Server** - For official Microsoft documentation and code samples
+   - 📖 **Setup Guide**: [Microsoft Learn MCP](https://github.com/MicrosoftDocs/mcp)
+   - Provides: `microsoft_docs_search`, `microsoft_docs_fetch`, `microsoft_code_sample_search` tools
+   - Requires: None (free, cloud-hosted by Microsoft)
+   - **Required for kql-query-authoring skill** - Provides official KQL patterns and documentation
+
 **⚠️ Without these MCP servers, investigations will fail. Set them up before proceeding.**
 
 #### Additional Prerequisites
 
-3. **Microsoft Sentinel Workspace** with Log Analytics access
-4. **Python 3.8+** with virtual environment
-5. **GitHub Copilot** (recommended for natural language investigation triggers)
+6. **Microsoft Sentinel Workspace** with Log Analytics access
+7. **Python 3.8+** with virtual environment
+8. **GitHub Copilot** (recommended for natural language investigation triggers)
 
 ### Setup Steps
 
@@ -646,7 +658,7 @@ Was MFA used for those authentications?
 
 ## 🔌 MCP Server Integration
 
-The system **requires** three Model Context Protocol (MCP) servers for Sentinel, Graph API, and Defender XDR integration. Two additional MCP servers are **recommended** for KQL query authoring capabilities.
+The system **requires** five Model Context Protocol (MCP) servers for Sentinel, Graph API, Defender XDR integration, and KQL query authoring capabilities.
 
 ### Required MCP Servers
 
@@ -728,9 +740,9 @@ mcp_sentinel-tria_GetDefenderMachineVulnerabilities({"id": "<MDE_MACHINE_ID>"})
 - **Threat hunting** - Cross-device correlation using Advanced Hunting
 - **Incident triage** - Automated alert and incident analysis
 
-### Recommended MCP Servers (for KQL Query Authoring)
+### Required MCP Servers (continued)
 
-These MCP servers enhance the **kql-query-authoring** skill with schema validation, community examples, and official documentation.
+These MCP servers are **required** for the **kql-query-authoring** skill, providing schema validation, community examples, and official documentation.
 
 #### 4. KQL Search MCP Server (`kql-search`)
 
@@ -849,11 +861,11 @@ mcp_microsoft_mcp_microsoft_graph_get("/v1.0/me?$select=displayName")
 mcp_sentinel-tria_FetchAdvancedHuntingTablesOverview({"tableNames": ["DeviceInfo"]})
 # Expected: Schema information for DeviceInfo table
 
-# Test KQL Search MCP (Recommended for KQL authoring)
+# Test KQL Search MCP (Required for KQL authoring)
 mcp_kql-search_get_schema_statistics()
 # Expected: Statistics showing 331+ tables indexed
 
-# Test Microsoft Learn MCP (Recommended for documentation)
+# Test Microsoft Learn MCP (Required for KQL authoring)
 mcp_microsoft-lea_microsoft_docs_search({"query": "KQL query language"})
 # Expected: Search results from Microsoft Learn
 ```
