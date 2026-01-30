@@ -262,6 +262,8 @@ body {
   display: flex;
   flex-direction: column;
   max-height: 420px;
+  margin-top: 95px; /* Align with map top edge (title + stats + gap) */
+  align-self: flex-start;
 }
 
 .selection-header {
@@ -483,6 +485,8 @@ body {
   display: flex;
   flex-direction: column;
   max-height: 420px;
+  margin-top: 95px; /* Align with map top edge (title + stats + gap) */
+  align-self: flex-start;
 }
 
 .enrichment-header {
