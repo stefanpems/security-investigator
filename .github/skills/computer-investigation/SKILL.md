@@ -211,10 +211,11 @@ When a user requests a computer security investigation:
 Use Advanced Hunting or Defender API to find the MDE device ID:
 ```kql
 DeviceInfo
-| where DeviceName =~ '<DEVICE_NAME>'
+| where DeviceName startswith '<DEVICE_NAME>'  // Use startswith to match both hostname and FQDN
 | summarize arg_max(Timestamp, *) by DeviceId
-| project DeviceId, DeviceName, OSPlatform, OSVersion, MachineGroup, OnboardingStatus, RiskScore
+| project DeviceId, DeviceName, OSPlatform, OSVersion, MachineGroup, OnboardingStatus, ExposureLevel, SensorHealthState
 ```
+**Note:** RiskScore is NOT in DeviceInfo - use `GetDefenderMachine` API to get riskScore and exposureLevel.
 
 **Why BOTH IDs are required:**
 - **Entra Device ID**: Used for Graph API (compliance, registration, BitLocker, Intune)
@@ -329,18 +330,23 @@ Use these exact patterns with the Sentinel Data Lake `query_lake` MCP tool for S
 ---
 
 ### 1. Device Sign-In Events (Who authenticated on this device)
+
+**Note:** DeviceDetail is `dynamic` in SigninLogs but `string` in AADNonInteractiveUserSignInLogs. Query SigninLogs only for device context (interactive sign-ins contain device info). Do NOT use `union` with DeviceDetail filtering - causes schema conflicts in Sentinel Data Lake.
+
 ```kql
 let start = datetime(<StartDate>);
 let end = datetime(<EndDate>);
 let deviceName = '<DEVICE_NAME>';
-union isfuzzy=true SigninLogs, AADNonInteractiveUserSignInLogs
+SigninLogs
 | where TimeGenerated between (start .. end)
-| extend DeviceName = tostring(DeviceDetail.displayName)
-| extend DeviceId = tostring(DeviceDetail.deviceId)
-| extend DeviceOS = tostring(DeviceDetail.operatingSystem)
-| extend DeviceTrustType = tostring(DeviceDetail.trustType)
-| extend DeviceCompliant = tostring(DeviceDetail.isCompliant)
-| where DeviceName =~ deviceName or DeviceId =~ '<DEVICE_ID>'
+| extend DeviceDetailStr = tostring(DeviceDetail)
+| where DeviceDetailStr has deviceName
+| extend ParsedDevice = parse_json(DeviceDetailStr)
+| extend DeviceName = tostring(ParsedDevice.displayName)
+| extend DeviceId = tostring(ParsedDevice.deviceId)
+| extend DeviceOS = tostring(ParsedDevice.operatingSystem)
+| extend DeviceTrustType = tostring(ParsedDevice.trustType)
+| extend DeviceCompliant = tostring(ParsedDevice.isCompliant)
 | summarize 
     SignInCount = count(),
     SuccessCount = countif(ResultType == '0'),
@@ -386,7 +392,7 @@ let end = datetime(<EndDate>);
 let deviceName = '<DEVICE_NAME>';
 DeviceProcessEvents
 | where Timestamp between (start .. end)
-| where DeviceName =~ deviceName
+| where DeviceName startswith deviceName  // Use startswith to match both hostname and FQDN
 | where ActionType in ("ProcessCreated", "ProcessCreatedUsingWmiQuery")
 | extend CommandLineLength = strlen(ProcessCommandLine)
 | extend IsSuspicious = case(
@@ -416,7 +422,7 @@ let end = datetime(<EndDate>);
 let deviceName = '<DEVICE_NAME>';
 DeviceNetworkEvents
 | where Timestamp between (start .. end)
-| where DeviceName =~ deviceName
+| where DeviceName startswith deviceName  // Use startswith to match both hostname and FQDN
 | where ActionType == "ConnectionSuccess"
 | where RemoteIPType != "Private" // Focus on public IPs
 | summarize 
@@ -441,7 +447,7 @@ let end = datetime(<EndDate>);
 let deviceName = '<DEVICE_NAME>';
 DeviceFileEvents
 | where Timestamp between (start .. end)
-| where DeviceName =~ deviceName
+| where DeviceName startswith deviceName  // Use startswith to match both hostname and FQDN
 | where ActionType in ("FileCreated", "FileModified", "FileDeleted", "FileRenamed")
 | extend FileExtension = tostring(split(FileName, ".")[-1])
 | extend IsSuspicious = case(
@@ -471,7 +477,7 @@ let end = datetime(<EndDate>);
 let deviceName = '<DEVICE_NAME>';
 DeviceRegistryEvents
 | where Timestamp between (start .. end)
-| where DeviceName =~ deviceName
+| where DeviceName startswith deviceName  // Use startswith to match both hostname and FQDN
 | where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
 | extend IsPersistence = case(
     RegistryKey has_any ("\\CurrentVersion\\Run", "\\CurrentVersion\\RunOnce", "\\CurrentVersion\\RunServices"), true,
@@ -528,13 +534,16 @@ SecurityIncident
 ```
 
 ### 8. Device Inventory and Configuration Changes
+
+**Note:** RiskScore is NOT in DeviceInfo - use GetDefenderMachine API for risk/exposure scores.
+
 ```kql
 let start = datetime(<StartDate>);
 let end = datetime(<EndDate>);
 let deviceName = '<DEVICE_NAME>';
 DeviceInfo
 | where Timestamp between (start .. end)
-| where DeviceName =~ deviceName
+| where DeviceName startswith deviceName  // Use startswith to match both hostname and FQDN
 | summarize arg_max(Timestamp, *) by DeviceId
 | project 
     Timestamp,
@@ -557,29 +566,34 @@ DeviceInfo
 ```
 
 ### 9. Software Inventory on Device
+
+**Note:** TVM tables use snapshot ingestion - no Timestamp filtering. Query via Advanced Hunting only.
+
 ```kql
 let deviceName = '<DEVICE_NAME>';
 DeviceTvmSoftwareInventory
-| where DeviceName =~ deviceName
-| summarize arg_max(Timestamp, *) by DeviceId, SoftwareVendor, SoftwareName, SoftwareVersion
+| where DeviceName startswith deviceName  // Use startswith to match both hostname and FQDN
 | project 
+    DeviceName,
     SoftwareVendor,
     SoftwareName,
     SoftwareVersion,
     EndOfSupportStatus,
     EndOfSupportDate,
-    NumberOfWeaknesses,
-    DiskPaths
+    NumberOfWeaknesses
+| summarize by SoftwareVendor, SoftwareName, SoftwareVersion, EndOfSupportStatus, EndOfSupportDate, NumberOfWeaknesses
 | order by NumberOfWeaknesses desc
 | take 30
 ```
 
 ### 10. Vulnerabilities on Device
+
+**Note:** TVM tables use snapshot ingestion - no Timestamp filtering. Query via Advanced Hunting only.
+
 ```kql
 let deviceName = '<DEVICE_NAME>';
 DeviceTvmSoftwareVulnerabilities
-| where DeviceName =~ deviceName
-| summarize arg_max(Timestamp, *) by DeviceId, CveId
+| where DeviceName startswith deviceName  // Use startswith to match both hostname and FQDN
 | project
     CveId,
     VulnerabilitySeverityLevel,
@@ -588,6 +602,7 @@ DeviceTvmSoftwareVulnerabilities
     SoftwareVersion,
     RecommendedSecurityUpdate,
     RecommendedSecurityUpdateId
+| summarize by CveId, VulnerabilitySeverityLevel, SoftwareVendor, SoftwareName, SoftwareVersion, RecommendedSecurityUpdate, RecommendedSecurityUpdateId
 | order by case(VulnerabilitySeverityLevel == "Critical", 1, VulnerabilitySeverityLevel == "High", 2, VulnerabilitySeverityLevel == "Medium", 3, 4) asc
 | take 30
 ```
@@ -599,7 +614,7 @@ let end = datetime(<EndDate>);
 let deviceName = '<DEVICE_NAME>';
 DeviceLogonEvents
 | where Timestamp between (start .. end)
-| where DeviceName =~ deviceName
+| where DeviceName startswith deviceName  // Use startswith to match both hostname and FQDN
 | summarize 
     LogonCount = count(),
     SuccessCount = countif(ActionType == "LogonSuccess"),
@@ -621,7 +636,7 @@ let end = datetime(<EndDate>);
 let deviceName = '<DEVICE_NAME>';
 let device_ips = DeviceNetworkEvents
 | where Timestamp between (start .. end)
-| where DeviceName =~ deviceName
+| where DeviceName startswith deviceName  // Use startswith to match both hostname and FQDN
 | where RemoteIPType != "Private"
 | distinct RemoteIP;
 ThreatIntelIndicators
@@ -794,6 +809,9 @@ Export MCP query results to a single JSON file with these required keys:
 |-------|----------|
 | **Device not found in Graph API** | Try searching by deviceId instead of displayName, check case sensitivity |
 | **Defender Device ID not matching** | Use Advanced Hunting to find correct Defender ID by device name |
+| **DeviceName query returns empty** | Use `startswith` instead of `=~` - DeviceName often contains FQDN (e.g., `hostname.domain.com`) |
+| **SigninLogs DeviceDetail fails with union** | DeviceDetail is `dynamic` in SigninLogs but `string` in AADNonInteractiveUserSignInLogs - query tables separately, don't use `union isfuzzy=true` with DeviceDetail filtering |
+| **RiskScore column not found** | RiskScore is NOT in DeviceInfo table - use `GetDefenderMachine` API for riskScore |
 | **Missing compliance data** | Device may not be MDM enrolled - check `isManaged` field |
 | **No process events** | Device may not be onboarded to Defender for Endpoint |
 | **Trust type is null** | Device may be partially registered - check registrationDateTime |

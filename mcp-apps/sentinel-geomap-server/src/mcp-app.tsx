@@ -52,51 +52,55 @@ interface GeoMapData {
 }
 
 // Robinson projection parameters (standard lookup table)
-const ROBINSON_AA = [
-  0.8487, 0.84751182, 0.84479598, 0.840213, 0.83359314, 0.8257851,
-  0.814752, 0.80006949, 0.78216192, 0.76060494, 0.73658673, 0.7086645,
-  0.67777182, 0.64475739, 0.60987582, 0.57134484, 0.52729731, 0.48562614, 0.45167814
+// X multiplier at each 5-degree latitude interval from 0 to 90
+const ROBINSON_X = [
+  1.0000, 0.9986, 0.9954, 0.9900, 0.9822, 0.9730,
+  0.9600, 0.9427, 0.9216, 0.8962, 0.8679, 0.8350,
+  0.7986, 0.7597, 0.7186, 0.6732, 0.6213, 0.5722, 0.5322
 ];
-const ROBINSON_BB = [
-  0, 0.0838426, 0.1676852, 0.2515278, 0.3353704, 0.419213,
-  0.5030556, 0.5868982, 0.67311143, 0.7593250, 0.84553818, 0.93066901,
-  1.01436161, 1.09554225, 1.17280746, 1.24610797, 1.31398330, 1.37643138, 1.41421356
+// Y value at each 5-degree latitude interval from 0 to 90
+const ROBINSON_Y = [
+  0.0000, 0.0620, 0.1240, 0.1860, 0.2480, 0.3100,
+  0.3720, 0.4340, 0.4958, 0.5571, 0.6176, 0.6769,
+  0.7346, 0.7903, 0.8435, 0.8936, 0.9394, 0.9761, 1.0000
 ];
 
 // Interpolate Robinson projection values
-function robinsonInterpolate(table: number[], lat: number): number {
-  const absLat = Math.abs(lat);
+function robinsonInterpolate(table: number[], absLat: number): number {
   const i = Math.min(Math.floor(absLat / 5), 17);
   const fraction = (absLat - i * 5) / 5;
   return table[i] * (1 - fraction) + table[i + 1] * fraction;
 }
 
-// Convert lat/lon to Robinson projection coordinates
-// Returns x,y in range roughly [-1,1] for x and [-1,1] for y
-function robinsonProject(lat: number, lon: number): { x: number; y: number } {
-  const lonRad = (lon * Math.PI) / 180;
-  const x = robinsonInterpolate(ROBINSON_AA, lat) * lonRad / Math.PI;
-  const y = (lat >= 0 ? 1 : -1) * robinsonInterpolate(ROBINSON_BB, lat);
-  return { x, y };
-}
-
-// Convert lat/lon to SVG coordinates based on Robinson projection
-// The SimpleMaps SVG viewBox is "0 0 2000 857" with center at lon=10E
+// Convert lat/lon to SVG coordinates
+// SimpleMaps world.svg: viewBox="0 0 2000 857", Robinson projection centered at ~11°E
 function latLonToSVG(lat: number, lon: number): { x: number; y: number } {
-  // The SVG is centered at approximately 10°E
-  const centerLon = 10;
-  const adjustedLon = lon - centerLon;
-  
-  const proj = robinsonProject(lat, adjustedLon);
-  
-  // Map to SVG coordinates (viewBox: 0 0 2000 857)
-  // x: -1 to 1 maps to roughly 50 to 1950
-  // y: -1 to 1 maps to roughly 50 to 807 (with margin)
   const svgWidth = 2000;
   const svgHeight = 857;
   
-  const x = (proj.x + 1) * (svgWidth * 0.475) + svgWidth * 0.025;
-  const y = (1 - (proj.y + 1) / 2) * (svgHeight * 0.9) + svgHeight * 0.05;
+  // SimpleMaps SVG is centered at approximately 11°E longitude
+  const centerLon = 11;
+  
+  // Normalize longitude to -180 to 180 range, adjusted for center
+  let adjustedLon = lon - centerLon;
+  if (adjustedLon > 180) adjustedLon -= 360;
+  if (adjustedLon < -180) adjustedLon += 360;
+  
+  const absLat = Math.abs(lat);
+  
+  // Get Robinson projection factors
+  const xFactor = robinsonInterpolate(ROBINSON_X, absLat);
+  const yFactor = robinsonInterpolate(ROBINSON_Y, absLat);
+  
+  // Apply projection
+  // x: longitude scaled by xFactor, mapped to SVG width
+  // Map -180 to 180 (adjusted) → 0 to 2000
+  const x = svgWidth / 2 + (adjustedLon / 180) * xFactor * (svgWidth / 2) * 0.95;
+  
+  // y: latitude to y position, with Robinson distortion
+  // Map 90 to -90 → 0 to 857 (top to bottom)
+  const ySign = lat >= 0 ? -1 : 1;
+  const y = svgHeight / 2 + ySign * yFactor * (svgHeight / 2) * 0.88;
   
   return { x, y };
 }
@@ -252,12 +256,101 @@ function Tooltip({ x, y, content, visible }: { x: number; y: number; content: st
   );
 }
 
-function GeoMap({ data }: { data: GeoMapData }) {
-  const [selectedIp, setSelectedIp] = useState<string | null>(null);
+// Selection Panel component for multi-select mode
+function SelectionPanel({
+  selectedIps,
+  enrichment,
+  valueLabel,
+  data,
+  onClear,
+  onRemove,
+  onInvestigate,
+  isSending
+}: {
+  selectedIps: Set<string>;
+  enrichment?: EnrichmentData[];
+  valueLabel: string;
+  data: MapMarker[];
+  onClear: () => void;
+  onRemove: (ip: string) => void;
+  onInvestigate: () => void;
+  isSending: boolean;
+}) {
+  if (selectedIps.size === 0) return null;
+  
+  const selectedList = Array.from(selectedIps);
+  
+  return (
+    <div className="selection-panel">
+      <div className="selection-header">
+        <span className="selection-title">
+          <span className="selection-count">{selectedIps.size}</span> IP{selectedIps.size > 1 ? 's' : ''} Selected
+        </span>
+        <button className="selection-clear" onClick={onClear} title="Clear selection">✕ Clear</button>
+      </div>
+      
+      <div className="selection-list">
+        {selectedList.map(ip => {
+          const enrich = enrichment?.find(e => e.ip === ip);
+          const marker = data.find(m => m.ip === ip);
+          return (
+            <div key={ip} className="selection-item">
+              <div className="selection-item-info">
+                <span className="selection-ip">{ip}</span>
+                {enrich && (
+                  <span className="selection-meta">
+                    {enrich.city}, {enrich.country}
+                    {enrich.abuse_confidence_score !== undefined && enrich.abuse_confidence_score > 0 && (
+                      <span className={`abuse-badge ${enrich.abuse_confidence_score >= 80 ? 'high' : enrich.abuse_confidence_score >= 50 ? 'medium' : 'low'}`}>
+                        {enrich.abuse_confidence_score}%
+                      </span>
+                    )}
+                  </span>
+                )}
+                {marker && <span className="selection-value">{valueLabel}: {marker.value}</span>}
+              </div>
+              <button className="selection-remove" onClick={() => onRemove(ip)}>×</button>
+            </div>
+          );
+        })}
+      </div>
+      
+      <div className="selection-actions">
+        <button 
+          className="btn-investigate" 
+          onClick={onInvestigate}
+          disabled={isSending}
+        >
+          {isSending ? 'Sending...' : '🔍 Investigate in Chat'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GeoMap({ data, app }: { data: GeoMapData; app: import("@modelcontextprotocol/ext-apps").App }) {
+  // Single-click view panel IP (for enrichment viewing)
+  const [viewingIp, setViewingIp] = useState<string | null>(null);
+  // Multi-select for investigation
+  const [selectedIps, setSelectedIps] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  
   const [tooltip, setTooltip] = useState<{ x: number; y: number; content: string; visible: boolean }>({
     x: 0, y: 0, content: '', visible: false
   });
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Zoom and pan state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  
+  const MIN_ZOOM = 1;
+  const MAX_ZOOM = 8;
+  const ZOOM_STEP = 0.25;
   
   const { minValue, maxValue } = data.stats;
   const hasEnrichment = data.enrichment && data.enrichment.length > 0;
@@ -285,15 +378,266 @@ function GeoMap({ data }: { data: GeoMapData }) {
   const handleMarkerLeave = () => {
     setTooltip(prev => ({ ...prev, visible: false }));
   };
+  
+  // Zoom handlers
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom + delta));
+    
+    // Zoom toward cursor position
+    if (mapContainerRef.current && newZoom !== zoom) {
+      const rect = mapContainerRef.current.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left;
+      const cursorY = e.clientY - rect.top;
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      
+      // Adjust pan to zoom toward cursor
+      const zoomRatio = newZoom / zoom;
+      const newPanX = cursorX - (cursorX - pan.x) * zoomRatio;
+      const newPanY = cursorY - (cursorY - pan.y) * zoomRatio;
+      
+      // Constrain pan to keep map visible
+      const maxPan = (newZoom - 1) * Math.max(rect.width, rect.height) / 2;
+      setPan({
+        x: Math.max(-maxPan, Math.min(maxPan, newPanX - centerX + centerX)),
+        y: Math.max(-maxPan, Math.min(maxPan, newPanY - centerY + centerY))
+      });
+    }
+    
+    setZoom(newZoom);
+  };
+  
+  const handleZoomIn = () => {
+    setZoom(prev => Math.min(MAX_ZOOM, prev + ZOOM_STEP * 2));
+  };
+  
+  const handleZoomOut = () => {
+    const newZoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP * 2);
+    setZoom(newZoom);
+    // Reset pan if zooming out to 1x
+    if (newZoom <= 1) {
+      setPan({ x: 0, y: 0 });
+    }
+  };
+  
+  const handleResetZoom = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+  
+  // Pan handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoom > 1 && e.button === 0) {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY });
+      setPanOffset({ x: pan.x, y: pan.y });
+      e.preventDefault();
+    }
+  };
+  
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isPanning && mapContainerRef.current) {
+      const rect = mapContainerRef.current.getBoundingClientRect();
+      const maxPan = (zoom - 1) * Math.max(rect.width, rect.height) / 2;
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      setPan({
+        x: Math.max(-maxPan, Math.min(maxPan, panOffset.x + dx)),
+        y: Math.max(-maxPan, Math.min(maxPan, panOffset.y + dy))
+      });
+    }
+  };
+  
+  const handleMouseUp = () => {
+    setIsPanning(false);
+  };
+  
+  const handleMouseLeave = () => {
+    setIsPanning(false);
+    handleMarkerLeave();
+  };
+  
+  // Toggle IP selection for multi-select mode
+  const toggleIpSelection = (ip: string) => {
+    setSelectedIps(prev => {
+      const next = new Set(prev);
+      if (next.has(ip)) {
+        next.delete(ip);
+      } else {
+        next.add(ip);
+      }
+      return next;
+    });
+  };
+  
+  // Handle marker click - different behavior based on mode
+  const handleMarkerClick = (ip: string) => {
+    if (selectionMode) {
+      toggleIpSelection(ip);
+    } else {
+      // Single view mode - toggle enrichment panel
+      setViewingIp(viewingIp === ip ? null : ip);
+    }
+  };
+  
+  // Clear all selections
+  const clearSelection = () => {
+    setSelectedIps(new Set());
+  };
+  
+  // Remove single IP from selection
+  const removeFromSelection = (ip: string) => {
+    setSelectedIps(prev => {
+      const next = new Set(prev);
+      next.delete(ip);
+      return next;
+    });
+  };
+  
+  // Send selected IPs to chat for investigation
+  const investigateInChat = async () => {
+    if (selectedIps.size === 0 || !app) return;
+    
+    setIsSending(true);
+    try {
+      const selectedList = Array.from(selectedIps);
+      
+      // Build enriched text for each IP
+      const enrichmentLines = selectedList.map(ip => {
+        const enrich = data.enrichment?.find(e => e.ip === ip);
+        const marker = data.data.find(m => m.ip === ip);
+        const parts = [ip];
+        
+        if (enrich) {
+          if (enrich.city || enrich.country) {
+            parts.push(`(${enrich.city || 'Unknown'}, ${enrich.country || '??'})`);
+          }
+          if (enrich.org) {
+            parts.push(`[${enrich.org}]`);
+          }
+          if (enrich.abuse_confidence_score !== undefined && enrich.abuse_confidence_score > 0) {
+            parts.push(`Abuse: ${enrich.abuse_confidence_score}%`);
+          }
+          if (enrich.is_vpn) parts.push('VPN');
+          if (enrich.is_tor) parts.push('Tor');
+          if (enrich.threat_categories && enrich.threat_categories.length > 0) {
+            parts.push(`Threats: ${enrich.threat_categories.slice(0, 3).join(', ')}`);
+          }
+        }
+        if (marker) {
+          parts.push(`${data.valueLabel}: ${marker.value}`);
+        }
+        
+        return `- ${parts.join(' | ')}`;
+      }).join('\n');
+      
+      // Use map title to provide context (strip common suffixes for cleaner message)
+      const cleanTitle = data.title
+        .replace(/\s*-\s*(top\s+)?\d+\s*ips?/i, '')  // Remove "- Top 50 IPs" etc
+        .replace(/\s*\(\s*top\s+\d+\s*ips?\s*\)/i, '')  // Remove "(Top 50 IPs)" etc
+        .replace(/\s*-\s*\d+\s*day\s*analysis/i, '')  // Remove "- 90 Day Analysis"
+        .trim();
+      
+      const message = `Investigate these ${selectedList.length} IP${selectedList.length > 1 ? 's' : ''} from the ${cleanTitle || 'map'}:\n\n${enrichmentLines}`;
+      
+      // Send as user message to trigger LLM response
+      await app.sendMessage({
+        role: "user",
+        content: [{ type: "text", text: message }]
+      });
+      
+      // Clear selection after sending
+      clearSelection();
+      setSelectionMode(false);
+    } catch (err) {
+      console.error('Failed to send message:', err);
+    } finally {
+      setIsSending(false);
+    }
+  };
 
-  // Process the SVG to style it for dark theme
+  // Generate graticule lines (latitude/longitude grid)
+  const generateGraticule = () => {
+    const lines: JSX.Element[] = [];
+    const strokeColor = "rgba(100, 140, 180, 0.15)";
+    const strokeWidth = 0.8 / zoom;
+    
+    // Latitude lines (every 30 degrees)
+    for (let lat = -60; lat <= 60; lat += 30) {
+      const points: string[] = [];
+      for (let lon = -180; lon <= 180; lon += 5) {
+        const { x, y } = latLonToSVG(lat, lon);
+        points.push(`${x},${y}`);
+      }
+      lines.push(
+        <polyline
+          key={`lat-${lat}`}
+          points={points.join(' ')}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+        />
+      );
+    }
+    
+    // Longitude lines (every 30 degrees)
+    for (let lon = -180; lon <= 180; lon += 30) {
+      const points: string[] = [];
+      for (let lat = -85; lat <= 85; lat += 5) {
+        const { x, y } = latLonToSVG(lat, lon);
+        points.push(`${x},${y}`);
+      }
+      lines.push(
+        <polyline
+          key={`lon-${lon}`}
+          points={points.join(' ')}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+        />
+      );
+    }
+    
+    return lines;
+  };
+
+  // Process the SVG to apply varied country colors for visual depth
+  // Use different shades based on country code hash for natural variation
   const processedSvg = worldMapSvg
-    .replace(/fill="#ececec"/g, 'fill="#2d3a4a"')  // Land color
-    .replace(/stroke="black"/g, 'stroke="#4a5a6a"')  // Border color
-    .replace(/stroke-width=".2"/g, 'stroke-width="0.5"');  // Slightly thicker borders
+    .replace(/<\?xml[^?]*\?>/g, '')
+    .replace(/<svg[^>]*>/g, '')
+    .replace(/<\/svg>/g, '')
+    .replace(/fill="#ececec"/g, '')  // Remove default fill - we'll add per-country
+    .replace(/stroke="black"/g, 'stroke="#3a4a5a"')
+    .replace(/stroke-width=".2"/g, 'stroke-width="0.4"')
+    // Apply varied green-blue-gray earth tones to countries based on ID patterns
+    .replace(/id="([A-Z]{2})"/g, (match, code) => {
+      // Hash country code to get consistent but varied colors
+      const hash = (code.charCodeAt(0) * 31 + code.charCodeAt(1)) % 6;
+      const colors = [
+        '#2a4a3a', // dark forest green
+        '#3a4a4a', // blue-gray
+        '#2d4a4d', // teal-gray
+        '#384a3d', // sage green
+        '#334455', // steel blue
+        '#2f4a42', // sea green
+      ];
+      return `id="${code}" fill="${colors[hash]}"`;
+    })
+    // Handle paths without explicit ID (generic land)
+    .replace(/<path(?![^>]*fill=)[^>]*>/g, (match) => {
+      if (!match.includes('fill=')) {
+        return match.replace('<path', '<path fill="#2d4a44"');
+      }
+      return match;
+    });
+  
+  const showPanel = viewingIp || (selectionMode && selectedIps.size > 0);
   
   return (
-    <div className={`geomap-wrapper ${selectedIp ? 'with-panel' : ''}`}>
+    <div className={`geomap-wrapper ${showPanel ? 'with-panel' : ''}`}>
       <div className="geomap-container">
         <h2 className="geomap-title">{data.title}</h2>
         
@@ -302,65 +646,164 @@ function GeoMap({ data }: { data: GeoMapData }) {
           <span>Countries: <strong>{data.stats.uniqueCountries}</strong></span>
           <span>Total {data.valueLabel}: <strong>{data.stats.totalValue.toLocaleString()}</strong></span>
           <span>Peak: <strong>{data.stats.maxValue.toLocaleString()}</strong></span>
-          {hasEnrichment && <span className="enrichment-hint-inline">Click marker for threat intel →</span>}
+          {hasEnrichment && !selectionMode && <span className="enrichment-hint-inline">Click marker for threat intel →</span>}
+          {selectionMode && <span className="selection-hint-inline">Click markers to select for investigation</span>}
         </div>
         
-        <div className="map-container" ref={mapContainerRef}>
+        {/* Selection Mode Toggle */}
+        <div className="mode-toggle">
+          <button 
+            className={`mode-btn ${!selectionMode ? 'active' : ''}`}
+            onClick={() => { setSelectionMode(false); clearSelection(); }}
+          >
+            👁 View
+          </button>
+          <button 
+            className={`mode-btn ${selectionMode ? 'active' : ''}`}
+            onClick={() => { setSelectionMode(true); setViewingIp(null); }}
+          >
+            ☑ Select
+          </button>
+        </div>
+        
+        <div 
+          className={`map-container ${isPanning ? 'panning' : ''} ${zoom > 1 ? 'zoomed' : ''}`}
+          ref={mapContainerRef}
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+        >
+          {/* Zoom Controls */}
+          <div className="zoom-controls">
+            <button className="zoom-btn" onClick={handleZoomIn} title="Zoom In">+</button>
+            <span className="zoom-level">{Math.round(zoom * 100)}%</span>
+            <button className="zoom-btn" onClick={handleZoomOut} title="Zoom Out">−</button>
+            {zoom > 1 && (
+              <button className="zoom-btn reset" onClick={handleResetZoom} title="Reset Zoom">⟲</button>
+            )}
+          </div>
+          
           <svg 
             viewBox={`0 0 ${svgWidth} ${svgHeight}`} 
             className="world-map-svg"
             preserveAspectRatio="xMidYMid meet"
+            style={{
+              transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+              transformOrigin: 'center center'
+            }}
           >
-            {/* Ocean background */}
-            <rect x="0" y="0" width={svgWidth} height={svgHeight} fill="#1a1a2e" />
+            {/* Gradient definitions */}
+            <defs>
+              {/* Ocean gradient - deep blue with subtle variation */}
+              <radialGradient id="oceanGradient" cx="50%" cy="40%" r="70%" fx="50%" fy="30%">
+                <stop offset="0%" stopColor="#1a3a5c" />
+                <stop offset="50%" stopColor="#0d2840" />
+                <stop offset="100%" stopColor="#061828" />
+              </radialGradient>
+              {/* Subtle glow for markers */}
+              <filter id="markerGlow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            
+            {/* Ocean background with gradient */}
+            <rect x="0" y="0" width={svgWidth} height={svgHeight} fill="url(#oceanGradient)" />
+            
+            {/* Graticule (lat/lon grid lines) */}
+            <g className="graticule">
+              {generateGraticule()}
+            </g>
             
             {/* Embedded world map from SimpleMaps (MIT license) */}
-            <g dangerouslySetInnerHTML={{ __html: processedSvg.replace(/<\?xml[^?]*\?>/, '').replace(/<svg[^>]*>/, '').replace(/<\/svg>/, '') }} />
+            <g className="countries" dangerouslySetInnerHTML={{ __html: processedSvg }} />
             
-            {/* Attack markers overlay */}
+            {/* Attack markers overlay - scale inversely with zoom for consistent visual size */}
             {data.data.map((marker) => {
               const { x, y } = latLonToSVG(marker.lat, marker.lon);
               const color = getMarkerColor(marker.value, minValue, maxValue, data.colorScale);
-              const size = getMarkerSize(marker.value, minValue, maxValue) * 2.5; // Scale for larger SVG
+              const baseSize = getMarkerSize(marker.value, minValue, maxValue) * 2.5;
+              // Scale markers inversely with zoom so they stay consistent visual size
+              const size = baseSize / zoom;
+              const strokeWidth = 2.5 / zoom;
+              const pulseStrokeWidth = 1.5 / zoom;
+              const fontSize = 18 / zoom;
               
               return (
-                <g key={marker.ip}>
+                <g key={marker.ip} filter="url(#markerGlow)">
+                  {/* Outer glow ring */}
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={size * 2}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={pulseStrokeWidth}
+                    opacity="0.2"
+                  />
                   {/* Pulse animation ring */}
                   <circle
                     cx={x}
                     cy={y}
-                    r={size * 1.5}
+                    r={size * 1.4}
                     fill="none"
                     stroke={color}
-                    strokeWidth="2"
+                    strokeWidth={pulseStrokeWidth}
                     opacity="0.4"
                     className="pulse-ring"
                   />
-                  {/* Main marker */}
+                  {/* Main marker with gradient-like effect */}
                   <circle
                     cx={x}
                     cy={y}
                     r={size}
                     fill={color}
-                    stroke="#ffffff"
-                    strokeWidth="3"
-                    opacity="0.9"
-                    style={{ cursor: hasEnrichment ? 'pointer' : 'default' }}
-                    onClick={() => hasEnrichment && setSelectedIp(selectedIp === marker.ip ? null : marker.ip)}
+                    stroke={selectedIps.has(marker.ip) ? '#00ff88' : viewingIp === marker.ip ? '#ffbb00' : 'rgba(255,255,255,0.8)'}
+                    strokeWidth={selectedIps.has(marker.ip) || viewingIp === marker.ip ? 4 / zoom : strokeWidth}
+                    opacity="0.95"
+                    style={{ cursor: hasEnrichment || selectionMode ? 'pointer' : 'default' }}
+                    onClick={() => (hasEnrichment || selectionMode) && handleMarkerClick(marker.ip)}
                     onMouseEnter={(e) => handleMarkerHover(marker, e)}
                     onMouseLeave={handleMarkerLeave}
-                    className={selectedIp === marker.ip ? 'marker-selected' : ''}
+                    className={`${viewingIp === marker.ip ? 'marker-viewing' : ''} ${selectedIps.has(marker.ip) ? 'marker-selected' : ''}`}
                   />
-                  {/* Value label for large markers */}
-                  {size > 30 && (
+                  {/* Selection checkmark */}
+                  {selectedIps.has(marker.ip) && (
                     <text
                       x={x}
-                      y={y + 8}
+                      y={y + 5 / zoom}
                       textAnchor="middle"
-                      fill="#ffffff"
-                      fontSize="20"
+                      fill="#00ff88"
+                      fontSize={20 / zoom}
                       fontWeight="bold"
                       style={{ pointerEvents: 'none' }}
+                    >
+                      ✓
+                    </text>
+                  )}
+                  {/* Inner highlight for 3D effect */}
+                  <circle
+                    cx={x - size * 0.25}
+                    cy={y - size * 0.25}
+                    r={size * 0.35}
+                    fill="rgba(255,255,255,0.3)"
+                    style={{ pointerEvents: 'none' }}
+                  />
+                  {/* Value label for large markers */}
+                  {baseSize > 30 && (
+                    <text
+                      x={x}
+                      y={y + 6 / zoom}
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize={fontSize}
+                      fontWeight="bold"
+                      style={{ pointerEvents: 'none', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}
                     >
                       {marker.value > 999 ? `${Math.round(marker.value / 1000)}k` : marker.value}
                     </text>
@@ -390,11 +833,26 @@ function GeoMap({ data }: { data: GeoMapData }) {
         </div>
       </div>
       
-      {selectedIp && hasEnrichment && (
+      {/* Enrichment Panel (View Mode) */}
+      {viewingIp && hasEnrichment && !selectionMode && (
         <EnrichmentPanel 
           enrichment={data.enrichment!}
-          selectedIp={selectedIp}
-          onClose={() => setSelectedIp(null)}
+          selectedIp={viewingIp}
+          onClose={() => setViewingIp(null)}
+        />
+      )}
+      
+      {/* Selection Panel (Select Mode) */}
+      {selectionMode && (
+        <SelectionPanel
+          selectedIps={selectedIps}
+          enrichment={data.enrichment}
+          valueLabel={data.valueLabel}
+          data={data.data}
+          onClear={clearSelection}
+          onRemove={removeFromSelection}
+          onInvestigate={investigateInChat}
+          isSending={isSending}
         />
       )}
     </div>
@@ -461,7 +919,7 @@ function App() {
     );
   }
   
-  return <GeoMap data={data} />;
+  return <GeoMap data={data} app={app} />;
 }
 
 // Mount the app
