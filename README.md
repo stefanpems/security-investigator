@@ -11,84 +11,22 @@ A Proof of Concept investigation automation system that leverages **GitHub Copil
 
 ---
 
-## ⚠️ CRITICAL PREREQUISITE
-
-**Before running any investigation, you MUST set up the anomaly detection KQL job in Microsoft Sentinel Data Lake:**
-
-If you choose not to deploy this prerequisite, just ask GitHub Copilot to remove references to this table from the copilot-instructions file. Instead of the user investigation using the custom Anomalous IP's table from this job, it will simply use Risky and Common IP's which come from out of the box tables.
-
-### Required: Signinlogs_Anomalies_KQL_CL Table
-
-This system depends on a **custom Sentinel table** (`Signinlogs_Anomalies_KQL_CL`) that must be populated by a **Sentinel Data Lake KQL Job** running hourly. Without this table, investigations will fail.
-
-**What is a KQL Job?**  
-A KQL Job is a scheduled query in Microsoft Sentinel Data Lake that runs KQL logic on a recurring schedule and writes results to a custom table. This is different from scheduled analytics rules - jobs are designed for data transformation and enrichment.
-
-**KQL Job Costs**  
-As this job does regular queries of the AADNonInteractiveSignInLogs and SigninLogs tables over large periods (ie 90d), you should test it and understand the query costs depending on the size of your environment. You can always scale it back to run daily instead, though if you do, you should have GitHub Copilot update the severity calculations in the query as the ArtifactHits would be higher when aggregated daily instead of hourly.
-
-**📖 See [docs/Signinlogs_Anomalies_KQL_CL.md](docs/Signinlogs_Anomalies_KQL_CL.md) for:**
-- Complete KQL job code (copy-paste ready)
-- Table schema documentation
-- Scheduled query setup instructions
-- Anomaly detection logic explanation
-
-**Quick Setup:**
-1. Navigate to **Microsoft Sentinel** → **Data Lake Exploration** → **Jobs** → **Create**
-2. Enter Job Name, Description and Workspace
-3. Choose to create new table with name `Signinlogs_Anomalies_KQL_CL`
-4. On the query page, copy the KQL query from `docs/Signinlogs_Anomalies_KQL_CL.md` modify time ranges if needed
-5. Set schedule: **Run every 1 hour (or 1 day to save costs)**, save changes
-6. Wait 24 hours for initial baseline data population
-
-**📚 Reference:** [Microsoft Sentinel Data Lake KQL Jobs Documentation](https://learn.microsoft.com/en-us/azure/sentinel/datalake/kql-jobs)
-
-**Why This Matters:**
-- Detects new IPs, countries, cities, devices not seen in user's 90-day baseline
-- Filters IPv6 addresses to reduce noise
-- Calculates geo novelty and baseline deviations
-- Provides severity scoring based on artifact frequency
-- Powers the "Anomaly Detection" section of investigation reports
-
----
-
-## ✨ Features
-
-### User Security Investigations
-- 🔍 **Baseline Anomaly Detection** - 90-day baseline vs 24-hour recent comparison model
-- 🌐 **IP Intelligence Enrichment** - ipinfo.io, vpnapi.io, AbuseIPDB, Sentinel threat intel
-- 👤 **Identity Protection Integration** - Microsoft Graph risk detections, risky sign-ins, user risk profile
-- 🔐 **MFA Assessment** - Complete authentication method inventory with phishing-resistant detection
-- 💻 **Device Compliance** - Intune enrollment status, compliance state, stale device detection
-- 📋 **Comprehensive Audit Trail** - Azure AD audit logs, Office 365 activity, DLP events
-- 🚨 **Security Incident Correlation** - Defender XDR incident/alert aggregation with deduplication
-- ⚖️ **Dynamic Risk Scoring** - Context-aware risk assessment with mitigating factors
-- 🎯 **Actionable Recommendations** - Prioritized remediation steps (Critical/High/Monitoring)
-- 📄 **Professional HTML Reports** - Dark-themed, interactive, browser-ready reports with timeline visualization
-
-### Honeypot Attack Analysis
-- 🎣 **Multi-Source Attack Correlation** - Windows Security Events, IIS logs, Defender network traffic
-- 🌍 **Threat Intelligence Enrichment** - Sentinel ThreatIntelIndicators, AbuseIPDB (100% confidence), VPN/proxy detection
-- 🎯 **Attack Pattern Analysis** - Credential brute force, web exploitation (CVE targeting), port scanning
-- 🔍 **Vulnerability Assessment** - Microsoft Defender for Endpoint CVE inventory with exploitation risk
-- 📊 **MITRE ATT&CK Mapping** - Tactic/technique identification with evidence linking
-- 📈 **Honeypot Effectiveness Metrics** - Incident detection rate, threat intel value, novel IOC discovery
-- 🚨 **Security Incident Filtering** - Automatic benign positive classification for expected honeypot activity
-- 📝 **Executive Markdown Reports** - Comprehensive attack surface analysis with recommendations
-
----
-
 ## 🤖 Agent Skills (VS Code Copilot)
 
 This system uses **[VS Code Agent Skills](https://code.visualstudio.com/docs/copilot/customization/agent-skills)** to provide modular, domain-specific investigation workflows. Skills are automatically detected based on keywords in your prompts.
 
 | Skill | Description | Trigger Keywords |
 |-------|-------------|------------------|
+| **[incident-investigation](/.github/skills/incident-investigation/SKILL.md)** | Comprehensive incident analysis for Defender XDR and Sentinel incidents: criticality assessment, entity extraction, filtering (RFC1918 IPs, tenant domains), recursive entity investigation using specialized skills | "investigate incident", "incident ID", "incident investigation", "analyze incident", "triage incident", incident number |
 | **[user-investigation](/.github/skills/user-investigation/SKILL.md)** | Azure AD user security analysis: sign-ins, anomalies, MFA, devices, audit logs, incidents, Identity Protection, HTML reports | "investigate user", "security investigation", "check user activity", UPN/email |
+| **[computer-investigation](/.github/skills/computer-investigation/SKILL.md)** | Device security analysis for Entra Joined, Hybrid Joined, and Entra Registered devices: Defender alerts, compliance, logged-on users, vulnerabilities, process/network/file events, automated investigations | "investigate computer", "investigate device", "investigate endpoint", "check machine", hostname |
+| **[ioc-investigation](/.github/skills/ioc-investigation/SKILL.md)** | Indicator of Compromise analysis: IP addresses, domains, URLs, file hashes. Includes Defender Threat Intelligence, Sentinel TI tables, CVE correlation, organizational exposure assessment, and affected device enumeration | "investigate IP", "investigate domain", "investigate URL", "investigate hash", "IoC", "is this malicious", "threat intel", IP/domain/URL/hash |
 | **[honeypot-investigation](/.github/skills/honeypot-investigation/SKILL.md)** | Honeypot security analysis: attack patterns, threat intel, vulnerabilities, executive reports | "honeypot", "attack analysis", "threat actor" |
 | **[kql-query-authoring](/.github/skills/kql-query-authoring/SKILL.md)** | KQL query creation using schema validation, community examples, Microsoft Learn | "write KQL", "create KQL query", "help with KQL", "query [table]" |
 | **[authentication-tracing](/.github/skills/authentication-tracing/SKILL.md)** | Azure AD authentication chain forensics: SessionId analysis, token reuse vs interactive MFA, geographic anomaly investigation | "trace authentication", "SessionId analysis", "token reuse", "geographic anomaly" |
 | **[ca-policy-investigation](/.github/skills/ca-policy-investigation/SKILL.md)** | Conditional Access policy forensics: sign-in failure correlation, policy state changes, security bypass detection | "Conditional Access", "CA policy", "device compliance", "policy bypass" |
+| **[heatmap-visualization](/.github/skills/heatmap-visualization/SKILL.md)** | Interactive heatmap visualization for Sentinel data: attack patterns by time, activity grids, IP vs hour matrices, threat intel drill-down panels | "heatmap", "show heatmap", "visualize patterns", "activity grid" |
+| **[geomap-visualization](/.github/skills/geomap-visualization/SKILL.md)** | Interactive world map visualization for Sentinel data: attack origin maps, geographic threat distribution, IP geolocation with enrichment drill-down | "geomap", "world map", "geographic", "attack map", "attack origins" |
 
 **How Skills Work:**
 1. You ask Copilot a question (e.g., "Investigate user@domain.com for the last 7 days")
@@ -118,14 +56,24 @@ security-investigator/
 │       │   └── SKILL.md         # SessionId forensics, token reuse vs MFA analysis
 │       ├── ca-policy-investigation/
 │       │   └── SKILL.md         # Conditional Access policy forensics
+│       ├── computer-investigation/
+│       │   └── SKILL.md         # Device security analysis for Entra/Hybrid/Registered devices
+│       ├── geomap-visualization/
+│       │   └── SKILL.md         # Interactive world map visualization for attack origins
+│       ├── heatmap-visualization/
+│       │   └── SKILL.md         # Interactive heatmap for time-based pattern analysis
 │       ├── honeypot-investigation/
 │       │   └── SKILL.md         # Attack pattern analysis, threat intel correlation
+│       ├── incident-investigation/
+│       │   └── SKILL.md         # Incident triage with entity extraction and deep investigation
+│       ├── ioc-investigation/
+│       │   └── SKILL.md         # IoC analysis: IPs, domains, URLs, file hashes
 │       ├── kql-query-authoring/
 │       │   └── SKILL.md         # Schema-validated KQL query generation
 │       └── user-investigation/
 │           └── SKILL.md         # Comprehensive user security analysis
 ├── docs/
-│   ├── Signinlogs_Anomalies_KQL_CL.md  # Anomaly table setup (REQUIRED PREREQUISITE)
+│   ├── Signinlogs_Anomalies_KQL_CL.md  # Anomaly table setup (for user-investigation skill)
 │   ├── IDENTITY_PROTECTION.md          # Graph Identity Protection integration
 │   ├── SECURITY_INCIDENT.md            # Incident correlation patterns
 │   └── IP_SELECTION_REFACTOR.md        # IP prioritization logic
@@ -171,34 +119,12 @@ This system **requires three MCP servers** to be installed and configured in VS 
 #### Additional Prerequisites
 
 3. **Microsoft Sentinel Workspace** with Log Analytics access
-4. **Anomaly KQL Job Running** - See [Setup Step 1](#1-set-up-anomaly-detection-kql-job-required)
-5. **Python 3.8+** with virtual environment
-6. **GitHub Copilot** (recommended for natural language investigation triggers)
+4. **Python 3.8+** with virtual environment
+5. **GitHub Copilot** (recommended for natural language investigation triggers)
 
 ### Setup Steps
 
-#### 1. Set Up Anomaly Detection KQL Job (REQUIRED)
-
-**Without this, investigations will fail with "No anomalies found" errors.**
-
-1. Read the complete setup guide: **[docs/Signinlogs_Anomalies_KQL_CL.md](docs/Signinlogs_Anomalies_KQL_CL.md)**
-2. Copy the KQL job code from the documentation
-3. In Microsoft Sentinel, navigate to **Data Lake Exploration** → **Jobs** → **Create** to create a KQL Job:
-   - **Name**: `Hourly Sign-in Anomaly Detection`
-   - **Schedule**: Run every **1 hour**
-   - **Destination**: Create new custom table `Signinlogs_Anomalies_KQL_CL`
-   - **Query**: Paste the KQL code from documentation (detects anomalies in last 1 hour vs 90-day baseline)
-4. Wait **24 hours** for initial data population
-5. Verify data exists:
-   ```kql
-   Signinlogs_Anomalies_KQL_CL
-   | where DetectedDateTime > ago(24h)
-   | summarize Count = count() by AnomalyType
-   ```
-
-**Expected output:** Rows with `NewInteractiveIP`, `NewInteractiveDeviceCombo`, `NewNonInteractiveIP`, `NewNonInteractiveDeviceCombo`
-
-#### 2. Install Dependencies
+#### 1. Install Dependencies
 
 ```powershell
 # Create virtual environment
@@ -213,7 +139,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-#### 3. Configure Environment
+#### 2. Configure Environment
 
 Edit `config.json` with your settings:
 
@@ -233,7 +159,7 @@ Edit `config.json` with your settings:
 - **vpnapi.io** - VPN detection (included in ipinfo.io paid plans)
 - **AbuseIPDB** - IP reputation scoring (free tier: 1,000/day)
 
-#### 4. Run Your First Investigation
+#### 3. Run Your First Investigation
 
 **Option A: Natural Language via GitHub Copilot (Recommended)**
 
@@ -648,7 +574,7 @@ Copilot will:
 
 ## 🤖 GitHub Copilot Integration
 
-This system is **designed for GitHub Copilot MCP integration** using **[VS Code Agent Skills](https://code.visualstudio.com/docs/copilot/customization/agent-skills)**. Investigation workflows are modularized into 5 specialized skills in `.github/skills/`, with universal patterns and skill detection logic in `.github/copilot-instructions.md`.
+This system is **designed for GitHub Copilot MCP integration** using **[VS Code Agent Skills](https://code.visualstudio.com/docs/copilot/customization/agent-skills)**. Investigation workflows are modularized into 10 specialized skills in `.github/skills/`, with universal patterns and skill detection logic in `.github/copilot-instructions.md`.
 
 ### Natural Language Investigation Prompts:
 
@@ -705,11 +631,16 @@ Was MFA used for those authentications?
 - Troubleshooting guide (common errors and solutions)
 
 **See `.github/skills/` for specialized workflows:**
+- `incident-investigation/SKILL.md` - Incident triage with entity extraction and deep investigation
 - `user-investigation/SKILL.md` - Complete user security investigation workflow (Phase 1-5)
+- `computer-investigation/SKILL.md` - Device security analysis for Entra/Hybrid/Registered devices
+- `ioc-investigation/SKILL.md` - IoC analysis for IPs, domains, URLs, file hashes
 - `honeypot-investigation/SKILL.md` - Attack pattern analysis and threat intel correlation
 - `kql-query-authoring/SKILL.md` - Schema-validated KQL query generation
 - `authentication-tracing/SKILL.md` - SessionId forensics, token reuse vs MFA analysis
 - `ca-policy-investigation/SKILL.md` - Conditional Access policy bypass detection
+- `heatmap-visualization/SKILL.md` - Interactive heatmap for time-based pattern visualization
+- `geomap-visualization/SKILL.md` - Interactive world map for geographic attack visualization
 
 ---
 
@@ -1051,7 +982,7 @@ pip install -r requirements.txt
 
 | Issue | Solution |
 |-------|----------|
-| **"No anomalies found" error** | The `Signinlogs_Anomalies_KQL_CL` table doesn't exist or has no data. See [Setup Step 1](#1-set-up-anomaly-detection-kql-job-required) to create the hourly KQL job. Wait 24 hours for initial data population. |
+| **"No anomalies found" error** | The `Signinlogs_Anomalies_KQL_CL` table doesn't exist or has no data. See the user-investigation skill documentation for KQL job setup. Wait 24 hours for initial data population. |
 | **"Import could not be resolved" (Pylance warning)** | This is a false positive from Pylance type checking. The code will run correctly. Ignore or disable Pylance warnings. |
 | **"IP enrichment failed"** | ipinfo.io rate limits (1,000/day free tier). Add API token to `config.json` for 50,000/month. Or wait for rate limit reset (midnight UTC). |
 | **"MCP server not available"** | MCP servers must be installed and configured in VS Code. Check VS Code settings → Extensions → MCP Server Configuration. Verify authentication tokens are valid. |
@@ -1065,30 +996,21 @@ pip install -r requirements.txt
 
 ### Verification Steps
 
-**1. Verify Anomaly Table Exists:**
-```kql
-Signinlogs_Anomalies_KQL_CL
-| where DetectedDateTime > ago(24h)
-| summarize Count = count() by AnomalyType
-| order by Count desc
-```
-**Expected:** 4 rows with NewInteractiveIP, NewInteractiveDeviceCombo, NewNonInteractiveIP, NewNonInteractiveDeviceCombo
-
-**2. Verify Graph API Permissions:**
+**1. Verify Graph API Permissions:**
 ```powershell
 # Test user query
 mcp_microsoft_mcp_microsoft_graph_get("/v1.0/users/user@domain.com?$select=id,displayName")
 ```
 **Expected:** JSON response with user ID and display name
 
-**3. Verify Sentinel Connectivity:**
+**2. Verify Sentinel Connectivity:**
 ```powershell
 # Test workspace query
 mcp_sentinel-mcp-2_list_sentinel_workspaces()
 ```
 **Expected:** Array with workspace name/ID pairs
 
-**4. Verify IP Enrichment:**
+**3. Verify IP Enrichment:**
 ```powershell
 python enrich_ips.py 8.8.8.8
 ```
@@ -1286,15 +1208,14 @@ Special thanks to the Microsoft Security community for sharing KQL queries and d
 
 ## 🚀 Getting Started (TL;DR)
 
-1. **Set up anomaly KQL job** - [docs/Signinlogs_Anomalies_KQL_CL.md](docs/Signinlogs_Anomalies_KQL_CL.md)
+1. **Install dependencies** - `pip install -r requirements.txt`
 2. **Configure environment** - Edit config.json with workspace ID
-3. **Install dependencies** - `pip install -r requirements.txt`
-4. **Run investigation** - Ask Copilot: "Investigate user@domain.com for the last 7 days"
-5. **Review report** - Open HTML file in browser
+3. **Run investigation** - Ask Copilot: "Investigate user@domain.com for the last 7 days"
+4. **Review report** - Open HTML file in browser
 
 **For detailed workflows, sample KQL queries, and troubleshooting:**
 → Read [.github/copilot-instructions.md](.github/copilot-instructions.md) (universal patterns, skill detection)
-→ Browse [.github/skills/](.github/skills/) (5 specialized investigation workflows)
+→ Browse [.github/skills/](.github/skills/) (10 specialized investigation workflows)
 
 ---
 
@@ -1306,13 +1227,12 @@ Investigate user@domain.com for suspicious activity in the last 7 days
 
 Or set up manually:
 ```powershell
-# 1. Set up anomaly KQL job (REQUIRED - see docs/Signinlogs_Anomalies_KQL_CL.md)
-# 2. Install dependencies
+# 1. Install dependencies
 pip install -r requirements.txt
 
-# 3. Configure environment
+# 2. Configure environment
 # Edit config.json with your workspace ID
 
-# 4. Ask GitHub Copilot
+# 3. Ask GitHub Copilot
 # "Investigate user@domain.com for the last 7 days"
 ```
