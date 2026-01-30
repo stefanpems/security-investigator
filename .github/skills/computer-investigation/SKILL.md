@@ -297,10 +297,59 @@ Use the Defender `GetDefenderMachine` MCP tool with Defender Device ID:
 
 ## Sample KQL Queries
 
-Use these exact patterns with the Sentinel Data Lake `query_lake` MCP tool for Sentinel or Advanced Hunting tools for Defender XDR tables. Replace `<DEVICE_NAME>`, `<DEVICE_ID>`, `<StartDate>`, `<EndDate>`.
+Use these exact patterns with the appropriate MCP tool. Replace `<DEVICE_NAME>`, `<DEVICE_ID>`, `<StartDate>`, `<EndDate>`.
 
 **⚠️ CRITICAL: START WITH THESE EXACT QUERY PATTERNS**
 **These queries have been tested and validated. Use them as your PRIMARY reference.**
+
+---
+
+### 🔧 MCP Tool Invocation Reference
+
+**CRITICAL: Use the correct parameter names for each tool!**
+
+#### Sentinel Data Lake MCP (query_lake tool)
+- **Tool:** Use the Sentinel Data Lake MCP's `query_lake` tool
+- **Parameter name:** `query`
+- **Time column:** `TimeGenerated`
+- **Use for:** Native Sentinel tables (SigninLogs, SecurityAlert, SecurityIncident, AuditLogs) AND MDE tables ingested into Sentinel (DeviceInfo, DeviceProcessEvents, DeviceNetworkEvents, etc.)
+
+**Example invocation:**
+```
+query_lake(
+    query="DeviceInfo | where DeviceName startswith 'DEVICENAME' | summarize arg_max(TimeGenerated, *) by DeviceId",
+    workspaceId="<WORKSPACE_ID>"
+)
+```
+
+#### Defender XDR Advanced Hunting (RunAdvancedHuntingQuery tool)
+- **Tool:** Use the Sentinel Triage MCP's `RunAdvancedHuntingQuery` tool
+- **Parameter name:** `kqlQuery` (NOT `query`!)
+- **Time column:** `Timestamp`
+- **Use for:** TVM tables (DeviceTvmSoftwareInventory, DeviceTvmSoftwareVulnerabilities) that are NOT ingested into Sentinel Data Lake
+
+**Example invocation:**
+```
+RunAdvancedHuntingQuery(
+    kqlQuery="DeviceTvmSoftwareVulnerabilities | where DeviceName startswith 'DEVICENAME' | take 30"
+)
+```
+
+#### Tool Selection Guide
+
+| Table Type | Primary Tool | Time Column | Notes |
+|------------|--------------|-------------|-------|
+| SigninLogs, AuditLogs | Sentinel Data Lake | TimeGenerated | Native Sentinel tables |
+| SecurityAlert, SecurityIncident | Sentinel Data Lake | TimeGenerated | Native Sentinel tables |
+| DeviceInfo, DeviceProcessEvents | Sentinel Data Lake | TimeGenerated | MDE tables in Sentinel |
+| DeviceNetworkEvents, DeviceFileEvents | Sentinel Data Lake | TimeGenerated | MDE tables in Sentinel |
+| DeviceLogonEvents, DeviceRegistryEvents | Sentinel Data Lake | TimeGenerated | MDE tables in Sentinel |
+| **DeviceTvmSoftwareInventory** | **Advanced Hunting** | Timestamp | Snapshot table, NOT in Sentinel |
+| **DeviceTvmSoftwareVulnerabilities** | **Advanced Hunting** | Timestamp | Snapshot table, NOT in Sentinel |
+
+**Schema Differences:**
+- Some MDE columns (e.g., `SentBytes`, `ReceivedBytes` in DeviceNetworkEvents) may not be available in Sentinel Data Lake
+- Always test queries against the target tool's schema
 
 ---
 
@@ -567,7 +616,7 @@ DeviceInfo
 
 ### 9. Software Inventory on Device
 
-**Note:** TVM tables use snapshot ingestion - no Timestamp filtering. Query via Advanced Hunting only.
+**Note:** TVM tables use snapshot ingestion - no Timestamp filtering. Query via **Advanced Hunting only** using `RunAdvancedHuntingQuery` with parameter `kqlQuery`.
 
 ```kql
 let deviceName = '<DEVICE_NAME>';
@@ -588,7 +637,7 @@ DeviceTvmSoftwareInventory
 
 ### 10. Vulnerabilities on Device
 
-**Note:** TVM tables use snapshot ingestion - no Timestamp filtering. Query via Advanced Hunting only.
+**Note:** TVM tables use snapshot ingestion - no Timestamp filtering. Query via **Advanced Hunting only** using `RunAdvancedHuntingQuery` with parameter `kqlQuery`.
 
 ```kql
 let deviceName = '<DEVICE_NAME>';
