@@ -1,10 +1,11 @@
 # Network Anomaly Detection Using series_decompose_anomalies()
 
-**Created:** January 15, 2026  
+**Created:** 2026-01-15  
 **Platform:** Microsoft Sentinel  
-**Data Sources:** DeviceNetworkEvents  
-**Function:** `series_decompose_anomalies()`  
-**Use Case:** Detecting least common external IPs, honeypot attack analysis, anomalous network patterns
+**Tables:** DeviceNetworkEvents  
+**Keywords:** anomaly detection, series_decompose_anomalies, time series, baseline deviation, rare IP, honeypot, reconnaissance, scanning, botnet  
+**MITRE:** T1046, T1595, TA0043  
+**Timeframe:** Last 7 days (configurable)
 
 ---
 

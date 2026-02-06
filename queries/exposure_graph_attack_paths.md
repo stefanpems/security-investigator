@@ -1,5 +1,14 @@
 # ExposureGraph Critical Assets & Attack Paths - Complete Query Library
 
+**Created:** 2026-01-15  
+**Platform:** Microsoft Defender XDR  
+**Tables:** ExposureGraphNodes, ExposureGraphEdges  
+**Keywords:** exposure graph, critical assets, attack paths, vulnerabilities, RCE, privilege escalation, internet-facing, cloud resources, Azure, AWS, GCP, identity, storage  
+**MITRE:** T1068, T1190, T1078, TA0004, TA0001  
+**Timeframe:** Point-in-time (snapshot data)
+
+---
+
 ## 📋 Overview
 
 This guide provides comprehensive KQL queries for finding critical assets and analyzing attack paths using the **ExposureGraphNodes** and **ExposureGraphEdges** tables in Microsoft Defender XDR Advanced Hunting.

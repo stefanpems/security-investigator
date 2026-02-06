@@ -7,9 +7,9 @@ This workspace contains a security investigation automation system. GitHub Copil
 ## 📑 TABLE OF CONTENTS
 
 1. **[Critical Workflow Rules](#-critical-workflow-rules---read-first-)** - Start here!
-2. **[Available Skills](#available-skills)** - Specialized investigation workflows
-3. **[Universal Patterns](#universal-patterns)** - Date ranges, time tracking, token management
-4. **[Follow-Up Analysis](#-critical-follow-up-analysis-workflow-mandatory)** - Working with existing data
+2. **[KQL Pre-Flight Checklist](#-kql-query-execution---pre-flight-checklist)** - Mandatory before EVERY query
+3. **[Evidence-Based Analysis](#-evidence-based-analysis---global-rule)** - Anti-hallucination guardrails
+4. **[Available Skills](#available-skills)** - Specialized investigation workflows
 5. **[Ad-Hoc Queries](#appendix-ad-hoc-query-examples)** - Quick reference patterns
 6. **[Troubleshooting](#troubleshooting-guide)** - Common issues and solutions
 
@@ -17,28 +17,7 @@ This workspace contains a security investigation automation system. GitHub Copil
 
 ## ⚠️ CRITICAL WORKFLOW RULES - READ FIRST ⚠️
 
-**🤖 SPECIALIZED SKILLS DETECTION:**
-
-**BEFORE starting any investigation, detect if user request requires a specialized skill:**
-
-| Keywords in Request | Action Required |
-|---------------------|-----------------|
-| **"investigate incident"**, "incident ID", "incident investigation", "analyze incident", "triage incident", incident number with investigation context | Use the **incident-investigation** skill at `.github/skills/incident-investigation/SKILL.md` |
-| **"investigate user"**, "security investigation", "check user activity", UPN/email with investigation context | Use the **user-investigation** skill at `.github/skills/user-investigation/SKILL.md` |
-| **"investigate computer"**, "investigate device", "investigate endpoint", "check machine", "device security", hostname with investigation context | Use the **computer-investigation** skill at `.github/skills/computer-investigation/SKILL.md` |
-| **"investigate IP"**, "investigate domain", "investigate URL", "investigate hash", "IoC investigation", "is this malicious", "threat intel", "check if [IP/domain/URL] is malicious", IP address or domain with investigation context | Use the **ioc-investigation** skill at `.github/skills/ioc-investigation/SKILL.md` |
-| **"honeypot"**, "attack analysis", "threat actor" | Use the **honeypot-investigation** skill at `.github/skills/honeypot-investigation/SKILL.md` |
-| **"write KQL"**, "create KQL query", "help with KQL", "query [table]", "KQL for [scenario]" | Use the **kql-query-authoring** skill at `.github/skills/kql-query-authoring/SKILL.md` |
-| **"trace authentication"**, "trace back to interactive MFA", "SessionId analysis", "token reuse", "geographic anomaly", "impossible travel" | Use the **authentication-tracing** skill at `.github/skills/authentication-tracing/SKILL.md` |
-| **"Conditional Access"**, "CA policy", "device compliance", "policy bypass", "53000", "50074", "530032" | Use the **ca-policy-investigation** skill at `.github/skills/ca-policy-investigation/SKILL.md` |
-| **"heatmap"**, "show heatmap", "visualize patterns", "activity grid", "time-based visualization" | Use the **heatmap-visualization** skill at `.github/skills/heatmap-visualization/SKILL.md` |
-| **"geomap"**, "world map", "geographic", "attack map", "show on map", "attack origins" | Use the **geomap-visualization** skill at `.github/skills/geomap-visualization/SKILL.md` |
-| **Future skills** | Check `.github/skills/` folder with `list_dir` to discover available specialized workflows |
-
-**Detection Pattern:**
-1. Parse user request for specialized keywords
-2. If match found: Read the appropriate SKILL.md file from `.github/skills/<skill-name>/SKILL.md`
-3. Follow skill-specific workflow (inherits universal patterns from this file)
+**🤖 SKILL DETECTION:** Before starting any investigation, check the [Available Skills](#available-skills) section below and load the appropriate SKILL.md file.
 
 ---
 
@@ -85,69 +64,246 @@ When executing ANY Sentinel query (via the Sentinel Data Lake `query_lake` MCP t
 
 ---
 
+## 🔴 KQL QUERY EXECUTION - PRE-FLIGHT CHECKLIST
+
+**This checklist applies to EVERY KQL query before execution.**
+
+**Exception — Skill & query library queries:** When following a SKILL.md investigation workflow or using a query directly from the `queries/` library, the queries are already verified and battle-tested. Skip Steps 1–4 and use those queries directly (substituting entity values as instructed). Step 5 (sanity-check zero results) still applies.
+
+Before writing or executing any **ad-hoc KQL query** (i.e., not from a SKILL.md file), complete these steps **in order**:
+
+### Step 1: Check for Existing Verified Queries
+
+| Priority | Source | Action |
+|----------|--------|--------|
+| 1st | **Skills directory** (`.github/skills/`) | `grep_search` for the table name or entity pattern scoped to `.github/skills/**`. These are battle-tested queries with known pitfalls documented. |
+| 2nd | **Queries library** (`queries/`) | `grep_search` for the table name, keyword, or technique scoped to `queries/**`. These are standalone verified query collections with standardized metadata headers (Tables, Keywords, MITRE fields). |
+| 3rd | **This file's Appendix** | Check [Ad-Hoc Query Examples](#appendix-ad-hoc-query-examples) for canonical patterns (SecurityAlert→SecurityIncident join, AuditLogs best practices, etc.) |
+| 4th | **KQL Search MCP** | Use `search_github_examples_fallback` or `validate_kql_query` for community-published examples |
+| 5th | **Microsoft Learn MCP** | Use `microsoft_code_sample_search` with `language: "kusto"` for official examples |
+
+**Short-circuit rule:** If a suitable query is found in Priority 1 (skills), Priority 2 (queries library), or Priority 3 (Appendix), skip Steps 2–4 and use it directly (substituting entity values). These sources are already schema-verified and pitfall-aware. Step 5 (sanity-check zero results) still applies.
+
+### Step 2: Verify Table Schema
+
+Before querying any table for the first time in a session, verify the schema:
+- Use `search_tables` or `get_table_schema` from KQL Search MCP
+- Confirm column names, types, and which columns contain GUIDs vs human-readable values
+- Check if the table exists in Data Lake vs Advanced Hunting (see [Tool Selection Rule](#-tool-selection-rule-data-lake-vs-advanced-hunting))
+
+### Step 3: Check Known Table Pitfalls
+
+**Review this quick-reference before querying these tables:**
+
+| Table | Pitfall | Required Action |
+|-------|---------|----------------|
+| **SecurityAlert** | `Status` field is **immutable** — always "New" regardless of actual state | MUST join with `SecurityIncident` to get real Status/Classification (see [Appendix pattern](#securityalertstatus-is-immutable---always-join-securityincident)) |
+| **SecurityIncident** | `AlertIds` contains **SystemAlertId GUIDs**, NOT usernames, IPs, or entity names | NEVER filter `AlertIds` by entity name. Instead: query `SecurityAlert` first filtering by `Entities has '<entity>'`, then join to `SecurityIncident` on AlertId |
+| **AuditLogs** | `InitiatedBy`, `TargetResources` are **dynamic fields** | Always wrap in `tostring()` before using `has` operator |
+| **AuditLogs** | `OperationName` values vary across providers | Use broad `has "keyword"` instead of exact match for discovery queries |
+| **SigninLogs** | `DeviceDetail`, `LocationDetails` are **dynamic fields** | Extract with `tostring(DeviceDetail.operatingSystem)` pattern |
+| **AADUserRiskEvents** | May have different retention than SigninLogs | Cross-reference with `SigninLogs` `RiskLevelDuringSignIn` for complete picture |
+| **OfficeActivity** | Mailbox forwarding/redirect rules live here, **NOT in AuditLogs** | Filter by `OfficeWorkload == "Exchange"` and `Operation in~ ("New-InboxRule", "Set-InboxRule", "Set-Mailbox", "UpdateInboxRules")`. Check `Parameters` for `ForwardTo`, `RedirectTo`, `ForwardingSmtpAddress`. This table is the **primary source** for detecting email exfiltration via forwarding rules (MITRE T1114.003 / T1020). |
+| **OfficeActivity** | `Parameters` and `OperationProperties` are **string fields** containing JSON | Use `contains` or `has` for keyword matching, then `parse_json(Parameters)` to extract specific values. Do NOT query AuditLogs for mailbox rule changes — they only appear in OfficeActivity (Exchange workload). |
+
+### Step 4: Validate Before Execution
+
+- For complex queries: use `validate_kql_query` to check syntax
+- Ensure datetime filter is the FIRST filter in the query
+- Use `take` or `summarize` to limit results
+
+### Step 5: Sanity-Check Zero Results
+
+**If a query returns 0 results for a commonly-populated table, STOP and verify:**
+
+| Check | Action |
+|-------|--------|
+| Is the query logic correct? | Review join conditions, filter values, and field types |
+| Am I filtering on GUIDs where I used a name (or vice versa)? | Check schema for field content type |
+| Is the date range appropriate? | Ensure the time filter covers the expected data window |
+| Does the table exist in this data source? | Try the other KQL execution tool if applicable |
+
+⛔ **DO NOT report "no results found" until you have verified the query itself is correct.** A zero-result query may indicate a bad query, not absence of data.
+
+### 🔴 PROHIBITED Actions
+
+| Action | Status |
+|--------|--------|
+| Writing KQL from scratch without completing Steps 1-2 | ❌ **PROHIBITED** |
+| Querying a table for the first time without checking schema | ❌ **PROHIBITED** |
+| Filtering `SecurityIncident.AlertIds` by entity names | ❌ **PROHIBITED** |
+| Reading `SecurityAlert.Status` as current investigation status | ❌ **PROHIBITED** |
+| Reporting 0 results without sanity-checking the query logic | ❌ **PROHIBITED** |
+| Assuming field content types without schema verification | ❌ **PROHIBITED** |
+
+---
+
+## 🔴 EVIDENCE-BASED ANALYSIS - GLOBAL RULE
+
+**This rule applies to ALL skills, ALL queries, and ALL investigation outputs.**
+
+### Core Principle
+Base ALL findings strictly on data returned by MCP tools. Never invent, assume, or extrapolate data that was not explicitly retrieved.
+
+### Required Behaviors
+
+| Scenario | Required Action |
+|----------|----------------|
+| Query returns 0 results | State explicitly: "✅ No [anomaly/alert/event type] found in [time range]" |
+| Field is null/missing in response | Report as "Unknown" or "Not available" - never fabricate values |
+| Partial data available | State what WAS found and what COULD NOT be verified |
+| User asks about data not queried | Query first, then answer - never guess based on "typical patterns" |
+
+### 🔴 PROHIBITED Actions
+
+| Action | Status |
+|--------|--------|
+| Inventing IP addresses, usernames, or entity names | ❌ **PROHIBITED** |
+| Assuming counts or statistics not in query results | ❌ **PROHIBITED** |
+| Describing "typical behavior" when no baseline was queried | ❌ **PROHIBITED** |
+| Omitting sections silently when no data exists | ❌ **PROHIBITED** |
+| Using phrases like "likely", "probably", "typically" without evidence | ❌ **PROHIBITED** |
+
+### ✅ REQUIRED Output Patterns
+
+**When data IS found:**
+```
+📊 Found 47 failed sign-ins from IP 203.0.113.42 between 2026-01-15 and 2026-01-22.
+Evidence: SigninLogs query returned 47 records with ResultType=50126.
+```
+
+**When NO data is found:**
+```
+✅ No failed sign-ins detected for user@domain.com in the last 7 days.
+Query: SigninLogs | where UserPrincipalName =~ 'user@domain.com' | where ResultType != 0
+Result: 0 records
+```
+
+**When data is PARTIAL:**
+```
+⚠️ Sign-in data available, but DeviceEvents table not accessible in this workspace.
+Verified: 12 successful authentications from 3 IPs
+Unable to verify: Endpoint process activity (table not found)
+```
+
+### Risk Assessment Grounding
+
+When assigning risk levels, cite the specific evidence:
+
+| Risk Level | Evidence Required |
+|------------|-------------------|
+| **High** | Must cite ≥2 concrete findings (e.g., "AbuseIPDB score 95 + 47 failed logins in 1 hour") |
+| **Medium** | Must cite ≥1 concrete finding with context (e.g., "New IP not in 90-day baseline") |
+| **Low** | Must explain why low despite investigation (e.g., "IP is known corporate VPN egress") |
+| **Informational** | Must still cite what was checked: "No alerts, no anomalies, no risky sign-ins found" |
+
+### Emoji Formatting for Investigation Output
+
+Use color-coded emojis consistently throughout investigation reports to make risks, mitigating factors, and status immediately scannable:
+
+| Category | Emoji | When to Use |
+|----------|-------|-------------|
+| **High risk / critical finding** | 🔴 | High-severity alerts, confirmed compromise, high abuse scores, active threats |
+| **Medium risk / warning** | 🟠 | Medium-severity detections, unresolved risk states, suspicious but unconfirmed activity |
+| **Low risk / minor concern** | 🟡 | Low-severity detections, informational anomalies, items needing review but not urgent |
+| **Mitigating factor / positive** | 🟢 | MFA enforced, phishing-resistant auth, clean threat intel, risk remediated/dismissed |
+| **Informational / neutral** | 🔵 | Contextual notes, baseline data, configuration details, reference information |
+| **Absence confirmed / clean** | ✅ | No alerts found, no anomalies, clean query results, verified safe |
+| **Needs attention / action item** | ⚠️ | Unresolved risks, report-only policies, recommendations requiring human decision |
+| **Data not available** | ❓ | Table not accessible, partial data, unable to verify |
+
+**Example usage in summary tables:**
+```markdown
+| Factor | Finding |
+|--------|---------|
+| 🟢 **Auth Method** | Phishing-resistant passkey (device-bound) — strong credential |
+| 🟠 **IP Reputation** | VPN exit node with 14 abuse reports (low confidence 5%) |
+| 🔴 **Unresolved Risk** | `unfamiliarFeatures` detection still atRisk — needs admin action |
+| ⚠️ **CA Policy Gap** | "Require MFA for risky sign-ins" is report-only, not enforcing |
+| ✅ **MFA Enforcement** | MFA required and passed on 16/18 sign-ins |
+```
+
+Apply these emojis in:
+- Summary assessment tables (prefix the factor name)
+- Section headers when results indicate clear risk or clean status
+- Inline findings where risk/mitigation context helps readability
+- Recommendation items (prefix with ⚠️ for action items, 🟢 for confirmations)
+
+### Explicit Absence Confirmation
+
+After every investigation section, confirm what was checked even if nothing was found:
+
+```markdown
+## Security Alerts
+✅ No security alerts involving user@domain.com in the last 30 days.
+- Checked: SecurityAlert table (0 matches)
+- Checked: SecurityIncident for associated entities (0 matches)
+```
+
+### KQL Query Research - Use Published Queries First
+
+> **📋 Full pre-flight checklist:** See [KQL QUERY EXECUTION - PRE-FLIGHT CHECKLIST](#-kql-query-execution---pre-flight-checklist) above. This subsection summarizes the query research requirement.
+
+Before writing any KQL query from scratch, **search for existing human-verified queries** in these sources (in priority order):
+
+1. **Skills directory (`.github/skills/`):** Search existing SKILL.md files for reference queries using the table or pattern you need. These are battle-tested queries with known pitfalls documented (e.g., `SecurityAlert.Status` immutability, dynamic field parsing). Use `grep_search` with the table name or keyword scoped to `.github/skills/**`.
+2. **Queries library (`queries/`):** Search standalone query collections for the table name, keyword, or MITRE technique. These files follow a standardized metadata header format with `Tables:`, `Keywords:`, and `MITRE:` fields for efficient keyword search. Use `grep_search` scoped to `queries/**`.
+3. **This file's [Appendix](#appendix-ad-hoc-query-examples):** Check for canonical query patterns (SecurityAlert→SecurityIncident join, AuditLogs, etc.) before writing from scratch.
+4. **KQL Search MCP:** Use `search_github_examples_fallback` or `validate_kql_query` to find community-published query examples from repositories like Azure-Sentinel and Microsoft-365-Defender-Hunting-Queries. Use `get_table_schema` to verify column names before querying.
+5. **Microsoft Learn MCP:** Use `microsoft_code_sample_search` with `language: "kusto"` to find official Microsoft KQL examples.
+
+**Why this matters:** Published queries encode institutional knowledge about schema quirks, immutable fields, required joins, and edge cases that are easy to get wrong when writing queries from scratch. Always prefer adapting a verified query over inventing one.
+
+| Action | Status |
+|--------|--------|
+| Writing KQL without completing the [Pre-Flight Checklist](#-kql-query-execution---pre-flight-checklist) | ❌ **PROHIBITED** |
+| Assuming field behavior without verifying in skill docs | ❌ **PROHIBITED** |
+| Using a table for the first time without checking schema | ❌ **PROHIBITED** |
+
+### Technical Context Enrichment
+
+When explaining technical concepts, use **Microsoft Learn MCP** to ground responses in official documentation:
+
+| When to Use | Example |
+|-------------|---------|
+| Explaining error codes | Search for "SigninLogs ResultType 50126" to get official meaning |
+| Describing attack techniques | Search for "AiTM phishing" or "token theft" for official remediation guidance |
+| Clarifying Azure/M365 features | Search for "Conditional Access device compliance" for accurate configuration details |
+| Interpreting log fields | Search for table schema documentation when field meaning is unclear |
+
+**Workflow:**
+1. `microsoft_docs_search` → Find relevant articles
+2. `microsoft_docs_fetch` → Get complete details when needed
+3. **Cite the source** in your response (include URL when providing technical guidance)
+
+---
+
 ## Available Skills
+
+**BEFORE starting any investigation, detect if user request matches a specialized skill:**
 
 | Skill | Description | Trigger Keywords |
 |-------|-------------|------------------|
-| **incident-investigation** | Comprehensive incident analysis for Defender XDR and Sentinel incidents: criticality assessment, entity extraction, filtering (RFC1918 IPs, tenant domains), recursive entity investigation using specialized skills | "investigate incident", "incident ID", "incident investigation", "analyze incident", "triage incident", incident number |
+| **incident-investigation** | Comprehensive incident analysis for Defender XDR and Sentinel incidents: criticality assessment, entity extraction, filtering (RFC1918 IPs, tenant domains), recursive entity investigation using specialized skills | "investigate incident", "incident ID", "analyze incident", "triage incident", incident number |
 | **user-investigation** | Azure AD user security analysis: sign-ins, anomalies, MFA, devices, audit logs, incidents, Identity Protection, HTML reports | "investigate user", "security investigation", "check user activity", UPN/email |
 | **computer-investigation** | Device security analysis for Entra Joined, Hybrid Joined, and Entra Registered devices: Defender alerts, compliance, logged-on users, vulnerabilities, process/network/file events, automated investigations | "investigate computer", "investigate device", "investigate endpoint", "check machine", hostname |
 | **ioc-investigation** | Indicator of Compromise analysis: IP addresses, domains, URLs, file hashes. Includes Defender Threat Intelligence, Sentinel TI tables, CVE correlation, organizational exposure assessment, and affected device enumeration | "investigate IP", "investigate domain", "investigate URL", "investigate hash", "IoC", "is this malicious", "threat intel", IP/domain/URL/hash |
 | **honeypot-investigation** | Honeypot security analysis: attack patterns, threat intel, vulnerabilities, executive reports | "honeypot", "attack analysis", "threat actor" |
-| **critical-storage-exposure** | Critical storage security analysis: exposure perimeter, attack paths, single point of failure detection for Azure Storage Accounts, Blob Containers, and AWS S3 Buckets. Uses ExposureGraph to identify who can access critical storage resources | "critical storage exposure", "storage security", "blob security", "S3 exposure", "storage attack paths", "data exfiltration risk", storage account/container/bucket with investigation context |
+| **critical-storage-exposure** | Critical storage security analysis: exposure perimeter, attack paths, single point of failure detection for Azure Storage Accounts, Blob Containers, and AWS S3 Buckets. Uses ExposureGraph to identify who can access critical storage resources | "critical storage exposure", "storage security", "blob security", "S3 exposure", "storage attack paths", "data exfiltration risk" |
 | **kql-query-authoring** | KQL query creation using schema validation, community examples, Microsoft Learn | "write KQL", "create KQL query", "help with KQL", "query [table]" |
-| **authentication-tracing** | Azure AD authentication chain forensics: SessionId analysis, token reuse vs interactive MFA, geographic anomaly investigation, risk assessment | "trace authentication", "trace back to interactive MFA", "SessionId analysis", "token reuse", "geographic anomaly" |
-| **ca-policy-investigation** | Conditional Access policy forensics: sign-in failure correlation, policy state changes, security bypass detection, privilege abuse analysis | "Conditional Access", "CA policy", "device compliance", "policy bypass", "53000", "50074" |
+| **authentication-tracing** | Azure AD authentication chain forensics: SessionId analysis, token reuse vs interactive MFA, geographic anomaly investigation, risk assessment | "trace authentication", "SessionId analysis", "token reuse", "geographic anomaly", "impossible travel" |
+| **ca-policy-investigation** | Conditional Access policy forensics: sign-in failure correlation, policy state changes, security bypass detection, privilege abuse analysis | "Conditional Access", "CA policy", "device compliance", "policy bypass", "53000", "50074", "530032" |
 | **heatmap-visualization** | Interactive heatmap visualization for Sentinel data: attack patterns by time, activity grids, IP vs hour matrices, threat intel drill-down panels | "heatmap", "show heatmap", "visualize patterns", "activity grid" |
-| **geomap-visualization** | Interactive world map visualization for Sentinel data: attack origin maps, geographic threat distribution, IP geolocation with enrichment drill-down | "geomap", "world map", "geographic", "attack map", "attack origins" |
+| **geomap-visualization** | Interactive world map visualization for Sentinel data: attack origin maps, geographic threat distribution, IP geolocation with enrichment drill-down | "geomap", "world map", "attack map", "show on map", "attack origins" |
+
+### Skill Detection Workflow
+
+1. **Parse user request** for trigger keywords from table above
+2. **If match found:** Read `.github/skills/<skill-name>/SKILL.md`
+3. **Follow skill-specific workflow** (inherits global rules from this file)
+4. **Future skills:** Check `.github/skills/` folder with `list_dir` to discover new workflows
 
 **Skill files location:** `.github/skills/<skill-name>/SKILL.md`
-
----
-
-## Universal Patterns
-
-**These patterns apply to ALL skills and ad-hoc queries:**
-
-**Why this matters:**
-- Sample queries include proper field handling (`Identity =~ '<UPN>' or tostring(InitiatedBy) has '<UPN>'`)
-- They avoid errors on dynamic fields (LocationDetails, ModifiedProperties, DeviceDetail)
-- They're production-validated
-
-**Example: User asks "What's that password reset about?" → Go to Sample Queries → Use Query #4**
-
----
-
-## 🔄 CRITICAL: Follow-Up Analysis Workflow (MANDATORY)
-
-**⚠️ BEFORE answering ANY follow-up question, you MUST:**
-1. ✅ Check if investigation JSON exists for that user/date range
-2. ✅ **Search copilot-instructions.md for relevant guidance** (use grep_search with topic keyword)
-3. ✅ **Query Sentinel/Graph if you need addtional data** ONLY query Sentinel/Graph if enriched data AND instructions are insufficient
-4. ✅ Search `ip_enrichment` json for relevant IP's if needed before coming to conclusions (contains VPN, ISP, abuse scores, threat intel)
-
-
-**Common follow-up patterns that REQUIRE using enriched JSON:**
-- "Trace authentication for [IP/location]" → Read `ip_enrichment` array + `signin_ip_counts`
-- "Is that a VPN?" → Read `ip_enrichment` array, find IP, check `is_vpn` field
-- "What's the risk level?" → Read `ip_enrichment` array, check `risk_level` + `abuse_confidence_score`
-- "Tell me about [IP address]" → Read `ip_enrichment` array, filter by `ip` field (e.g., `"ip": "203.0.113.42"`)
-- "Show me authentication details" → Read `ip_enrichment` array, check `last_auth_result_detail` field
-- "Was that IP flagged by threat intel?" → Read `ip_enrichment` array, check `threat_description` field (non-empty = match)
-
-**DO NOT re-query threat intel or sign-in data if it's already in the JSON file!**
-
-**How to read IP enrichment data:**
-1. Locate investigation JSON: `temp/investigation_<upn_prefix>_<timestamp>.json`
-2. Read file and parse JSON structure
-3. Navigate to `ip_enrichment` array (near end of file, after `risk_detections`/`risky_signins`)
-4. Find IP entry: `ip_enrichment` is an array of objects - filter by `"ip": "<target_ip>"`
-5. Extract relevant fields: `is_vpn`, `abuse_confidence_score`, `threat_description`, `last_auth_result_detail`, etc.
-
-**How to find the investigation JSON:**
-- Pattern: `temp/investigation_<upn_prefix>_<timestamp>.json`
-- Most recent file for user is usually the one to analyze
-- Use `file_search` or `list_dir` to locate existing investigations
 
 ---
 
@@ -335,37 +491,99 @@ Signinlogs_Anomalies_KQL_CL
 
 **Full Documentation:** See [docs/Signinlogs_Anomalies_KQL_CL.md](../docs/Signinlogs_Anomalies_KQL_CL.md) for complete schema and triage guidance.
 
-## Configuration
-
-Configuration is stored in `config.json`:
-```json
-{
-  "sentinel_workspace_id": "<YOUR_WORKSPACE_ID>",
-  "tenant_id": "your-tenant-id-here",
-  "ipinfo_token": null,
-  "output_dir": "reports"
-}
-```
-
 ---
 
 ## APPENDIX: Ad-Hoc Query Examples
 
-### Ad-Hoc IP Enrichment Utility
+### SecurityAlert.Status Is Immutable - Always Join SecurityIncident
 
-For quick IP enrichment during investigation follow-ups, use the `enrich_ips.py` utility:
+**⚠️ CRITICAL:** The `Status` field on the `SecurityAlert` table is set to `"New"` at creation time and **never changes**. It does NOT reflect whether the alert has been investigated, closed, or classified.
+
+To get the **actual investigation status**, you MUST join with `SecurityIncident`:
+
+```kql
+let relevantAlerts = SecurityAlert
+| where TimeGenerated between (start .. end)
+| where Entities has '<ENTITY>'
+| summarize arg_max(TimeGenerated, *) by SystemAlertId
+| project SystemAlertId, AlertName, AlertSeverity, ProviderName, Tactics;
+SecurityIncident
+| where CreatedTime between (start .. end)
+| summarize arg_max(TimeGenerated, *) by IncidentNumber
+| mv-expand AlertId = AlertIds
+| extend AlertId = tostring(AlertId)
+| join kind=inner relevantAlerts on $left.AlertId == $right.SystemAlertId
+| summarize Title = any(Title), Severity = any(Severity), Status = any(Status),
+    Classification = any(Classification), CreatedTime = any(CreatedTime)
+    by ProviderIncidentId
+| order by CreatedTime desc
+```
+
+| Field | Source | Meaning |
+|-------|--------|----------|
+| `SecurityAlert.Status` | Alert table | **Immutable creation status** - always "New" |
+| `SecurityIncident.Status` | Incident table | **Real status** - New/Active/Closed |
+| `SecurityIncident.Classification` | Incident table | **Closure reason** - TruePositive/FalsePositive/BenignPositive |
+
+**Reference:** See `.github/skills/geomap-visualization/SKILL.md` Query 6 and `.github/skills/user-investigation/SKILL.md` for the canonical join pattern.
+
+---
+
+### Queries Library — Standardized Format (`queries/`)
+
+All query files in `queries/` MUST use this standardized metadata header for efficient `grep_search` discovery:
+
+**File naming convention:** `{topic}.md` — lowercase, underscores, no redundant suffixes like `_queries` or `_sentinel`. Keep names short and descriptive of the detection scenario or data domain (e.g., `app_credential_management.md`, `rdp_lateral_movement.md`, `endpoint_failed_connections.md`).
+
+```markdown
+# <Title>
+
+**Created:** YYYY-MM-DD  
+**Platform:** Microsoft Sentinel | Microsoft Defender XDR | Both  
+**Tables:** <comma-separated list of exact KQL table names>  
+**Keywords:** <comma-separated searchable terms — attack techniques, scenarios, field names>  
+**MITRE:** <comma-separated technique IDs, e.g., T1021.001, TA0008>  
+**Timeframe:** Last N days (configurable)  
+```
+
+**Required fields for search efficiency:**
+
+| Field | Purpose | Example |
+|-------|---------|---------|
+| `Tables:` | Exact KQL table names for `grep_search` by table | `AuditLogs, SecurityAlert, SecurityIncident` |
+| `Keywords:` | Searchable terms covering attack scenarios, operations, field names | `credential, secret, certificate, persistence, app registration` |
+| `MITRE:` | ATT&CK technique and tactic IDs | `T1098.001, T1136.003, TA0003` |
+
+**Search pattern:** `grep_search` scoped to `queries/**` with the table name or keyword will hit the metadata header and locate the right file instantly.
+
+**When creating new query files:** Follow this format. When updating existing files that lack these fields, add them.
+
+**PII-Free Standard:** Query files in `queries/` must NEVER contain tenant-specific PII such as real workspace names, UPNs, server hostnames, GUIDs, or application names from live environments. Use generic placeholders (e.g., `<YourAppName>`, `user@contoso.com`, `<WorkspaceName>`) instead. Before committing or saving a query file, verify it contains no environment-specific identifiers.
+
+---
+
+### IP Enrichment Utility (`enrich_ips.py`)
+
+Use `enrich_ips.py` to enrich IP addresses with **3rd-party threat intelligence** from ipinfo.io, vpnapi.io, and AbuseIPDB. This provides VPN/proxy/Tor detection, ISP/ASN details, hosting provider identification, abuse confidence scores, and recent community-reported attack activity.
+
+**When to use:**
+- Whenever the user asks to enrich, investigate, or check IPs
+- When risky sign-ins, anomalies, or suspicious activity involve unfamiliar IP addresses
+- During ad-hoc investigations, follow-up analysis, or spot-checking suspicious IPs
+- Any time IP context would improve the investigation (e.g., confirming VPN usage, checking abuse history)
+
+**When NOT to use:**
+- When already executing a prescriptive skill workflow (from `.github/skills/`) that has its own built-in IP enrichment step — follow the skill's guidance instead to avoid duplication
 
 ```powershell
-# Enrich specific IPs from anomaly analysis
+# Enrich specific IPs
 python enrich_ips.py 203.0.113.42 198.51.100.10 192.0.2.1
 
 # Enrich all unenriched IPs from an investigation file
 python enrich_ips.py --file temp/investigation_user_20251130.json
 ```
 
-**Features:** Enriches IPs using ipinfo.io, vpnapi.io, and AbuseIPDB. Detects VPN, proxy, Tor, hosting, and abuse scores. Exports results to JSON.
-
-**When to use:** Follow-up analysis, spot-checking suspicious IPs, completing partial investigations. **DO NOT use in main investigation workflow** (IP enrichment is already built into report generation).
+**Output:** Detailed per-IP results (city, country, ISP/ASN, VPN/proxy/Tor flags, AbuseIPDB score + recent report comments) and a JSON export saved to `temp/`.
 
 ---
 
@@ -471,116 +689,17 @@ Active PIM Role Assignments (Z):
 
 ---
 
-## Output
-
-The investigation generates:
-- **JSON data file**: Raw investigation results
-- **HTML report**: Professional, browser-ready report with:
-  - Executive summary
-  - Key metrics dashboard
-  - Anomaly findings
-  - IP intelligence cards
-  - User profile & MFA status
-  - Device inventory
-  - Audit log timeline
-  - Security alerts table
-  - Risk assessment
-  - Prioritized recommendations
-  - Investigation conclusion
-
-**Report Theme:**
-- **Default**: Dark theme with Microsoft brand colors
-  - Background: Dark gray gradients (#1a1a1a → #2d2d2d)
-  - Primary accent: Microsoft blue (#00a1f1, #0078d4)
-  - Highlights: Microsoft orange (#f65314), gold (#ffbb00), green (#7cbb00)
-  - High contrast text for accessibility (#e0e0e0 on dark backgrounds)
-- **Color Palette**:
-  - Orange: #f65314 (critical alerts)
-  - Gold: #ffbb00 (high priority)
-  - Blue: #00a1f1 (medium/info)
-  - Green: #7cbb00 (low/success)
-  - Gray: #737373 (neutral elements)
-
-## Example Workflow
-
-User says: **"Investigate user@domain.com for suspicious activity in the last 7 days"**
-
-Copilot should:
-1. **Phase 1:** Get user Object ID from Microsoft Graph
-2. **Phase 2:** Run all Sentinel and Graph queries in parallel batches
-3. **Phase 2c:** Extract IPs and run threat intelligence query
-4. **Phase 2d:** Create single JSON file with all results in temp/
-5. **Phase 3:** Run `generate_report_from_json.py` script with JSON file path
-6. Show the user the report path and provide brief summary
-
-See "OPTIMIZED PARALLEL EXECUTION PATTERN" section above for detailed workflow.
-
-## Error Handling
-
-If the investigation encounters issues:
-- Missing configuration: Falls back to defaults
-- MCP query failures: Logs warnings, continues with available data
-- IP enrichment failures: Returns "Error" status, continues investigation
-- Missing user data: Shows "Unknown" in report, continues
-
-The investigation is designed to be resilient and complete successfully even with partial data.
-
 ## Troubleshooting Guide
 
 ### Common Issues and Solutions
 
 | Issue | Solution |
 |-------|----------|
-| **Missing `department` or `officeLocation` in Graph API response** | Use `"Unknown"` as default value in JSON |
-| **No anomalies found in Sentinel query** | Export empty array: `"anomalies": []` |
-| **Graph API returns 404 for user** | Verify UPN is correct; check if user exists with different UPN |
-| **Sentinel query timeout** | Reduce date range or add `| take 5` to limit results |
-| **Missing `trustType` in device query** | Use default: `"trustType": "Workplace"` |
-| **Null `approximateLastSignInDateTime`** | Use default: `"approximateLastSignInDateTime": "2025-01-01T00:00:00Z"` |
-| **Report generation fails** | Check JSON file has ALL required fields; validate JSON syntax |
-| **KQL syntax error** | Use EXACT query patterns from Sample KQL Queries section |
-| **SemanticError: Failed to resolve column** | Field doesn't exist in table schema - remove it or check Sample KQL Queries for correct field names |
-| **DeviceDetail, LocationDetails, ModifiedProperties errors** | These are dynamic fields - use `| take 1` to see raw structure, then parse with `parse_json()` or remove from query |
-| **No results from SecurityIncident query** | Ensure you're using BOTH `targetUPN` and `targetUserId` variables |
+| **Graph API returns 404 for entity** | Verify UPN/ID is correct; check if entity exists with different identifier |
+| **Sentinel query timeout** | Reduce date range or add `| take 100` to limit results |
+| **KQL syntax error** | Validate query with `validate_kql_query` tool before execution |
+| **SemanticError: Failed to resolve column** | Field doesn't exist in table schema - use `get_table_schema` to check valid columns |
+| **SemanticError: Failed to resolve table** | Table not in Data Lake - try `RunAdvancedHuntingQuery` instead |
+| **Dynamic field errors (DeviceDetail, LocationDetails)** | Use `tostring()` wrapper or `parse_json()` to extract values |
 | **Risky sign-ins query fails** | Must use `/beta` endpoint, not `/v1.0` |
-
-### Required Field Defaults
-
-If Graph API returns null for these fields, use these defaults:
-
-```json
-{
-  "department": "Unknown",
-  "officeLocation": "Unknown",
-  "trustType": "Workplace",
-  "approximateLastSignInDateTime": "2025-01-01T00:00:00Z"
-}
-```
-
-### Empty Result Handling
-
-If a Sentinel query returns no results, include empty arrays:
-
-```json
-{
-  "anomalies": [],
-  "signin_apps": [],
-  "signin_locations": [],
-  "signin_failures": [],
-  "audit_events": [],
-  "office_events": [],
-  "dlp_events": [],
-  "incidents": [],
-  "risk_detections": [],
-  "risky_signins": [],
-  "threat_intel_ips": []
-}
-```
-
-## Security Notes
-
-- All reports are marked CONFIDENTIAL
-- Reports contain sensitive user information
-- Store reports securely
-- Follow organizational data classification policies
-- Investigation actions are logged for audit trail
+| **Multiple workspaces available** | Follow SENTINEL WORKSPACE SELECTION rule - ask user to choose |

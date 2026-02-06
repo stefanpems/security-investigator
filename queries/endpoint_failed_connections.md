@@ -1,9 +1,11 @@
 # Defender for Endpoint - Failed Connections & Logon Attempts
 
-**Created:** January 13, 2026  
+**Created:** 2026-01-13  
 **Platform:** Microsoft Sentinel  
-**Data Sources:** DeviceLogonEvents, DeviceNetworkEvents  
-**Timeframe:** Last 14 days
+**Tables:** DeviceLogonEvents, DeviceNetworkEvents  
+**Keywords:** failed logon, brute force, failed connection, port scan, blocked attack, endpoint, device  
+**MITRE:** T1110, T1046, TA0006, TA0007  
+**Timeframe:** Last 14 days (configurable)
 
 ---
 
