@@ -79,7 +79,7 @@ This skill detects **scope drift** — the gradual, often imperceptible expansio
 | `AuditLogs` | ✅ | ✅ | Permission/credential/role changes |
 | `SecurityAlert` | ✅ | ✅ | Corroborating alert evidence |
 | `DeviceNetworkEvents` | ✅ | ✅ | Network activity correlation |
-| `SigninLogs_Anomalies_KQL_CL` | ❌ | ✅ | Pre-computed anomaly detection (custom table) |
+| `Signinlogs_Anomalies_KQL_CL` | ❌ | ✅ | Pre-computed anomaly detection (custom table) |
 | `SigninLogs` (risk fields) | ❌ | ✅ | Identity Protection risk events |
 
 ---
@@ -281,7 +281,7 @@ This is the primary query that computes per-entity behavioral profiles and drift
 - **DeviceNetworkEvents:** Check for anomalous network activity (SPN: service accounts; User: user-associated devices)
 
 **User accounts only (additional sources):**
-- **SigninLogs_Anomalies_KQL_CL:** Pre-computed anomaly detection (new IPs, new device combos, geographic novelty). Query 9.
+- **Signinlogs_Anomalies_KQL_CL:** Pre-computed anomaly detection (new IPs, new device combos, geographic novelty). Query 9.
 - **Identity Protection risk fields:** `RiskLevelDuringSignIn`, `RiskState`, `RiskEventTypes_V2` from `SigninLogs`. Query 10.
 
 ### Phase 4: Score Computation & Report Generation
@@ -541,10 +541,10 @@ AuditLogs
 ### Query 9: SigninLogs Anomaly Table (Custom)
 
 ```kql
-// Pre-computed anomalies from SigninLogs_Anomalies_KQL_CL
+// Pre-computed anomalies from Signinlogs_Anomalies_KQL_CL
 // Substitute <UPN> with user's UPN
 // Note: This table may not exist in all workspaces — handle gracefully
-SigninLogs_Anomalies_KQL_CL
+Signinlogs_Anomalies_KQL_CL
 | where TimeGenerated > ago(14d)
 | where UserPrincipalName =~ '<UPN>'
 | extend Severity = case(
@@ -722,7 +722,7 @@ When outputting to markdown file, include everything from the inline format PLUS
 **Solution:** If `DistinctDevices` is very low (0-1) despite many sign-ins, note the gap rather than treating low device count as meaningful.
 
 #### Custom Anomaly Table Availability
-**Problem:** `SigninLogs_Anomalies_KQL_CL` is a custom table that may not exist in all workspaces.  
+**Problem:** `Signinlogs_Anomalies_KQL_CL` is a custom table that may not exist in all workspaces. **CRITICAL:** The table name uses lowercase 'l' in "logs" — `Signinlogs` not `SigninLogs`. KQL custom table names are case-sensitive.  
 **Solution:** If the table is not found, skip Query 9 gracefully and note: "⚠️ Custom anomaly table not available in this workspace — skipping pre-computed anomaly check." Do not fail the entire analysis.
 
 ---
@@ -736,7 +736,7 @@ When outputting to markdown file, include everything from the inline format PLUS
 | `AADServicePrincipalSignInLogs` table not found | SPN | This table may not exist in all workspaces. Check if it's available with `search_tables`. Try Advanced Hunting as fallback. |
 | `SigninLogs` table not found | User | Rare but possible in workspaces without Entra ID P1/P2 logging enabled. Report as blocker. |
 | `AADNonInteractiveUserSignInLogs` table not found | User | Check workspace configuration. Non-interactive logs require diagnostic settings. Skip non-interactive analysis and note the gap. |
-| `SigninLogs_Anomalies_KQL_CL` table not found | User | Custom table — may not exist. Skip Query 9 gracefully with a note; do not fail the analysis. |
+| `Signinlogs_Anomalies_KQL_CL` table not found | User | Custom table — may not exist. Note: table name uses lowercase 'l' in "logs". Skip Query 9 gracefully with a note; do not fail the analysis. |
 | Zero entities in results | Both | Verify the workspace has sign-in data for the entity type. Check if logging is enabled. For user: verify UPN spelling. |
 | Query timeout | Both | Reduce the baseline window from 90 to 60 days, or add `\| take 100` to intermediate results. |
 | AuditLogs `has_any` not matching | Both | Ensure IDs are quoted strings in the `dynamic()` array. Use `tostring()` on dynamic fields. |
