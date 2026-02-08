@@ -274,7 +274,7 @@ Each file uses a standardized metadata header for efficient `grep_search` discov
 | **Python 3.8+** | For IP enrichment utility and report generation. [Download](https://www.python.org/downloads/) |
 | **Node.js 18+** | Required for KQL Search MCP (`npx`) and building local MCP Apps. [Download](https://nodejs.org/) or install via `winget install OpenJS.NodeJS.LTS` (Windows) / `brew install node` (macOS). |
 | **Microsoft Sentinel** | Log Analytics workspace with data. You'll need the workspace GUID and tenant ID. |
-| **Azure AD Permissions** | If you can query Sentinel in the Azure Portal, you likely have sufficient access. See [MCP Server Setup](#-mcp-server-setup) for detailed per-server requirements. |
+| **Azure AD Permissions** | If you can query Sentinel in the Azure Portal, you likely have sufficient access. The **Graph MCP server** requires a [one-time tenant provisioning](https://learn.microsoft.com/en-us/graph/mcp-server/get-started?tabs=http%2Cvscode) by an admin. See [MCP Server Setup](#-mcp-server-setup) for detailed per-server requirements. |
 | **GitHub PAT** | `public_repo` scope — [Create one here](https://github.com/settings/tokens/new). Used by KQL Search MCP. |
 
 ### 1. Install Dependencies
