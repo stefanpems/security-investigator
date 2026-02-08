@@ -68,7 +68,7 @@ pip install -r requirements.txt
 - **11 Agent Skills** — Modular investigation workflows for incidents, users, devices, IoCs, authentication, scope drift, and more
 - **5 MCP Server Integrations** — Sentinel Data Lake, Graph API, Defender XDR Triage, KQL Search, Microsoft Learn
 - **3 Local MCP Apps** — Interactive heatmaps, geographic attack maps, incident commenting
-- **Python Utilities** — HTML report generation with IP enrichment (geolocation, VPN detection, abuse scores)
+- **Python Utilities** — HTML report generation with IP enrichment (geolocation, VPN detection, abuse scores, Shodan port/service/CVE intelligence)
 
 ---
 
@@ -293,6 +293,7 @@ Copy `config.json.template` to `config.json` and fill in your values:
 | `ipinfo_token` | Recommended | [ipinfo.io](https://ipinfo.io/) API token — geolocation, ASN, org. Free: 1K/day; token: 50K/month; paid plans include VPN detection |
 | `abuseipdb_token` | Recommended | [AbuseIPDB](https://www.abuseipdb.com/) API token — IP reputation scoring (0-100 confidence). Free: 1K/day |
 | `vpnapi_token` | Optional | [vpnapi.io](https://vpnapi.io/) API token — VPN/proxy/Tor detection. Not needed if ipinfo.io is on a paid plan |
+| `shodan_token` | Optional | [Shodan](https://account.shodan.io/) API key — open ports, services, CVEs, OS detection, tags. Free InternetDB fallback if no key or credits exhausted |
 | `output_dir` | No | Directory for HTML reports (default: `reports`) |
 
 ### 3. Build MCP Apps (Optional — Visualization Skills)
@@ -474,8 +475,9 @@ mcp_microsoft-lea_microsoft_docs_search({"query": "KQL query language"})
 | **ipinfo.io** | 1,000/day (geo, org, ASN) | 50,000/month; paid plans include VPN detection |
 | **AbuseIPDB** | 1,000/day | 10,000/day ($20/month) |
 | **vpnapi.io** | 1,000/month | 10,000/month ($9.99/month) |
+| **Shodan** | InternetDB (unlimited, ports/vulns/tags) | $49 one-time membership: 100 queries/month (adds services, banners, SSL, OS) |
 
-**Token priority:** If `ipinfo_token` is a paid plan, VPN detection is included and `vpnapi_token` is optional.
+**Token priority:** If `ipinfo_token` is a paid plan, VPN detection is included and `vpnapi_token` is optional. Shodan uses the full API when a paid key is available; on 403/429 it automatically falls back to the free InternetDB.
 
 IP enrichment happens during **report generation** (not data collection), so you can re-generate reports without re-querying Sentinel/Graph.
 
@@ -536,5 +538,5 @@ python enrich_ips.py 8.8.8.8
 
 ## 🙏 Acknowledgments
 
-Built using **Microsoft Sentinel**, **Microsoft Graph API**, **Microsoft Identity Protection**, **ipinfo.io**, **vpnapi.io**, **AbuseIPDB**, and **GitHub Copilot**. Special thanks to the Microsoft Security community for sharing KQL queries and detection logic.
+Built using **Microsoft Sentinel**, **Microsoft Graph API**, **Microsoft Identity Protection**, **ipinfo.io**, **vpnapi.io**, **AbuseIPDB**, **Shodan**, and **GitHub Copilot**. Special thanks to the Microsoft Security community for sharing KQL queries and detection logic.
 

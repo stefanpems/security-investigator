@@ -615,7 +615,7 @@ All query files in `queries/` MUST use this standardized metadata header for eff
 
 ### IP Enrichment Utility (`enrich_ips.py`)
 
-Use `enrich_ips.py` to enrich IP addresses with **3rd-party threat intelligence** from ipinfo.io, vpnapi.io, and AbuseIPDB. This provides VPN/proxy/Tor detection, ISP/ASN details, hosting provider identification, abuse confidence scores, and recent community-reported attack activity.
+Use `enrich_ips.py` to enrich IP addresses with **3rd-party threat intelligence** from ipinfo.io, vpnapi.io, AbuseIPDB, and Shodan. This provides VPN/proxy/Tor detection, ISP/ASN details, hosting provider identification, abuse confidence scores, recent community-reported attack activity, open port enumeration, service/banner detection, known CVEs, and Shodan tags (e.g., honeypot, C2, self-signed).
 
 **When to use:**
 - Whenever the user asks to enrich, investigate, or check IPs

@@ -6,7 +6,7 @@ Usage:
     python enrich_ips.py --file investigation.json
     python enrich_ips.py 203.0.113.42 198.51.100.10
 
-Enriches IP addresses using ipinfo.io, vpnapi.io, and AbuseIPDB.
+Enriches IP addresses using ipinfo.io, vpnapi.io, AbuseIPDB, and Shodan.
 """
 
 import json
@@ -57,6 +57,15 @@ def enrich_single_ip(ip: str, config: dict) -> dict:
         'total_reports': 0,
         'is_whitelisted': False,
         'recent_comments': [],  # List of recent abuse report comments
+        # Shodan fields
+        'shodan_ports': [],       # List of open ports
+        'shodan_services': [],    # List of {port, protocol, product, version, banner_snippet}
+        'shodan_os': None,        # Detected OS
+        'shodan_vulns': [],       # List of CVE IDs
+        'shodan_tags': [],        # Shodan tags (e.g., "honeypot", "c2", "self-signed")
+        'shodan_hostnames': [],   # Reverse DNS hostnames
+        'shodan_cpes': [],        # Common Platform Enumeration identifiers
+        'shodan_last_update': None,  # When Shodan last scanned this IP
     }
     
     # 1. IPInfo.io enrichment
@@ -164,6 +173,68 @@ def enrich_single_ip(ip: str, config: dict) -> dict:
             except Exception as e:
                 print(f"  [AbuseIPDB Reports] Error for {ip}: {str(e)}", file=sys.stderr)
     
+    # 5. Shodan enrichment (full API primary, InternetDB fallback)
+    shodan_token = config.get('shodan_token')
+    shodan_full_ok = False
+    
+    # Step 5a: Full Shodan API — returns OS, services, banners, SSL, vulns, tags
+    if shodan_token:
+        try:
+            url = f"https://api.shodan.io/shodan/host/{ip}"
+            params = {'key': shodan_token, 'minify': 'false'}
+            response = requests.get(url, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                shodan_full_ok = True
+                shodan_data = response.json()
+                result['shodan_ports'] = shodan_data.get('ports', [])
+                result['shodan_os'] = shodan_data.get('os')
+                result['shodan_vulns'] = sorted(shodan_data.get('vulns', []))
+                result['shodan_tags'] = shodan_data.get('tags', [])
+                result['shodan_hostnames'] = shodan_data.get('hostnames', [])
+                result['shodan_last_update'] = shodan_data.get('last_update')
+                
+                # Extract service details from 'data' array
+                for svc in shodan_data.get('data', []):
+                    service_info = {
+                        'port': svc.get('port'),
+                        'transport': svc.get('transport', 'tcp'),
+                        'product': svc.get('product', ''),
+                        'version': svc.get('version', ''),
+                        'module': svc.get('_shodan', {}).get('module', ''),
+                        'banner_snippet': (svc.get('data', '') or '')[:200].strip(),
+                    }
+                    # Add SSL/TLS info if present
+                    ssl = svc.get('ssl', {})
+                    if ssl:
+                        cert = ssl.get('cert', {})
+                        if cert:
+                            service_info['ssl_subject'] = cert.get('subject', {}).get('CN', '')
+                            service_info['ssl_issuer'] = cert.get('issuer', {}).get('O', '')
+                            service_info['ssl_expired'] = cert.get('expired', False)
+                    result['shodan_services'].append(service_info)
+            elif response.status_code == 404:
+                shodan_full_ok = True  # API worked, IP just not indexed
+            # 403 (free key) / 429 (out of credits) / other → fall through to InternetDB
+        except Exception as e:
+            print(f"  [Shodan] Error for {ip}: {str(e)}", file=sys.stderr)
+    
+    # Step 5b: InternetDB fallback — free, no API key needed (used when full API unavailable or out of credits)
+    if not shodan_full_ok:
+        try:
+            url = f"https://internetdb.shodan.io/{ip}"
+            response = requests.get(url, timeout=5)
+            
+            if response.status_code == 200:
+                idb_data = response.json()
+                result['shodan_ports'] = idb_data.get('ports', [])
+                result['shodan_vulns'] = sorted(idb_data.get('vulns', []))
+                result['shodan_tags'] = idb_data.get('tags', [])
+                result['shodan_hostnames'] = idb_data.get('hostnames', [])
+                result['shodan_cpes'] = idb_data.get('cpes', [])
+        except Exception as e:
+            print(f"  [Shodan InternetDB] Error for {ip}: {str(e)}", file=sys.stderr)
+    
     return result
 
 
@@ -172,7 +243,7 @@ def enrich_ips(ip_list: list[str], max_workers: int = 3) -> list[dict]:
     config = load_config()
     results = []
     
-    print(f"Enriching {len(ip_list)} IPs using ipinfo.io, vpnapi.io, AbuseIPDB...\n")
+    print(f"Enriching {len(ip_list)} IPs using ipinfo.io, vpnapi.io, AbuseIPDB, Shodan...\n")
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_ip = {executor.submit(enrich_single_ip, ip, config): ip for ip in ip_list}
@@ -195,6 +266,10 @@ def enrich_ips(ip_list: list[str], max_workers: int = 3) -> list[dict]:
                     flags.append("Relay")
                 if result['abuse_confidence_score'] > 0:
                     flags.append(f"Abuse:{result['abuse_confidence_score']}%")
+                if result['shodan_ports']:
+                    flags.append(f"Ports:{len(result['shodan_ports'])}")
+                if result['shodan_vulns']:
+                    flags.append(f"CVEs:{len(result['shodan_vulns'])}")
                 
                 flag_str = f"[{', '.join(flags)}]" if flags else "[Clean]"
                 print(f"  OK {ip:<17} {flag_str}")
@@ -264,6 +339,74 @@ def print_abuse_comments(results: list[dict]):
             print()
 
 
+def print_shodan_details(results: list[dict]):
+    """Print Shodan open ports, services, CVEs, and tags for IPs with Shodan data"""
+    ips_with_shodan = [r for r in results if r.get('shodan_ports')]
+
+    if not ips_with_shodan:
+        return
+
+    print(f"\n{'='*130}")
+    print(f"Shodan Intelligence ({len(ips_with_shodan)} IPs with open ports):\n")
+
+    # Sort by number of CVEs descending, then by port count
+    ips_with_shodan.sort(key=lambda x: (len(x.get('shodan_vulns', [])), len(x.get('shodan_ports', []))), reverse=True)
+
+    for item in ips_with_shodan:
+        ports = item.get('shodan_ports', [])
+        vulns = item.get('shodan_vulns', [])
+        tags = item.get('shodan_tags', [])
+        hostnames = item.get('shodan_hostnames', [])
+        os_str = item.get('shodan_os') or 'Unknown'
+        last_update = (item.get('shodan_last_update') or '')[:19]
+
+        print(f"{'─'*130}")
+        tag_str = f" | Tags: {', '.join(tags)}" if tags else ""
+        host_str = f" | Hosts: {', '.join(hostnames[:3])}" if hostnames else ""
+        print(f"🔍 {item['ip']} | {item['city']}, {item['country']} | OS: {os_str} | Ports: {len(ports)} | CVEs: {len(vulns)}{tag_str}{host_str}")
+        if last_update:
+            print(f"   Last scanned: {last_update}")
+        print(f"{'─'*130}")
+
+        # Print services table (from full Shodan API) or port list (from InternetDB)
+        services = item.get('shodan_services', [])
+        if services:
+            print(f"   {'Port':<8} {'Proto':<6} {'Module':<14} {'Product':<25} {'Version':<12} {'SSL Subject':<30}")
+            print(f"   {'-'*95}")
+            for svc in sorted(services, key=lambda s: s.get('port', 0)):
+                port = str(svc.get('port', ''))
+                transport = svc.get('transport', '')
+                module = svc.get('module', '')[:14]
+                product = (svc.get('product', '') or svc.get('module', ''))[:25]
+                version = (svc.get('version', '') or '')[:12]
+                ssl_subj = svc.get('ssl_subject', '')
+                ssl_str = ''
+                if ssl_subj:
+                    expired_tag = ' [EXPIRED]' if svc.get('ssl_expired') else ''
+                    ssl_str = f"{ssl_subj}{expired_tag}"[:30]
+                print(f"   {port:<8} {transport:<6} {module:<14} {product:<25} {version:<12} {ssl_str}")
+        else:
+            # InternetDB only — show port list and CPEs
+            print(f"   Open ports: {', '.join(str(p) for p in sorted(ports))}")
+            cpes = item.get('shodan_cpes', [])
+            if cpes:
+                print(f"   CPEs: {', '.join(cpes[:10])}")
+
+        # Print CVEs
+        if vulns:
+            cve_display = vulns[:15]
+            remaining = len(vulns) - 15
+            print(f"\n   CVEs ({len(vulns)}):")
+            # Print in rows of 5
+            for i in range(0, len(cve_display), 5):
+                row = cve_display[i:i+5]
+                print(f"   {'  '.join(row)}")
+            if remaining > 0:
+                print(f"   ... and {remaining} more")
+
+        print()
+
+
 def print_summary(results: list[dict]):
     """Print summary statistics"""
     print(f"\n{'='*130}")
@@ -283,6 +426,21 @@ def print_summary(results: list[dict]):
     print(f"    High confidence (>75%): {sum(1 for x in results if x['abuse_confidence_score'] > 75)}")
     print(f"    Medium confidence (25-75%): {sum(1 for x in results if 25 <= x['abuse_confidence_score'] <= 75)}")
     print(f"    Whitelisted: {sum(1 for x in results if x['is_whitelisted'])}")
+    print("\n  Shodan Intelligence:")
+    print(f"    IPs with open ports: {sum(1 for x in results if x['shodan_ports'])}")
+    print(f"    IPs with known CVEs: {sum(1 for x in results if x['shodan_vulns'])}")
+    print(f"    IPs with Shodan tags: {sum(1 for x in results if x['shodan_tags'])}")
+    total_ports = sum(len(x['shodan_ports']) for x in results)
+    total_cves = sum(len(x['shodan_vulns']) for x in results)
+    print(f"    Total open ports discovered: {total_ports}")
+    print(f"    Total CVEs across all IPs: {total_cves}")
+    # Highlight interesting Shodan findings
+    c2_ips = [x['ip'] for x in results if any(t in x.get('shodan_tags', []) for t in ['c2', 'malware', 'compromised'])]
+    if c2_ips:
+        print(f"    🔴 C2/Malware tagged IPs: {', '.join(c2_ips)}")
+    honeypot_ips = [x['ip'] for x in results if 'honeypot' in x.get('shodan_tags', [])]
+    if honeypot_ips:
+        print(f"    🟡 Honeypot tagged IPs: {', '.join(honeypot_ips)}")
     print("\n  Overall:")
     print(f"    Clean residential IPs: {sum(1 for x in results if not any([x['is_vpn'], x['vpnapi_security_vpn'], x['is_proxy'], x['vpnapi_security_proxy'], x['is_tor'], x['vpnapi_security_tor'], x['abuse_confidence_score'] > 0]))}")
 
@@ -348,7 +506,8 @@ def main():
     
     # Display results
     print_detailed_results(results)
-    print_abuse_comments(results)  # New: show abuse comments
+    print_abuse_comments(results)
+    print_shodan_details(results)
     print_summary(results)
     
     # Optionally save to JSON

@@ -184,6 +184,7 @@ cd "<WORKSPACE_ROOT>"
 - ISP/Organization (ASN, org name)
 - VPN/Proxy/Tor detection (`is_vpn`, `is_proxy`, `is_tor`)
 - Abuse reputation (`abuse_confidence_score`, `total_reports`)
+- Shodan intelligence: open ports, CVEs, tags (e.g., `eol-os`, `self-signed`, `c2`), CPEs, hostnames
 - Risk level assessment (HIGH/MEDIUM/LOW)
 
 **Note:** Enrichment script provides aggregated statistics for all IPs - use these summary stats in report narrative instead of listing every IP

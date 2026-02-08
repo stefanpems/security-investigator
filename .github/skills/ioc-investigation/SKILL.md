@@ -122,6 +122,7 @@ IF query returns "Failed to resolve table" or similar error:
 - ThreatIntelIndicators (Sentinel TI table)
 - SigninLogs (if used for authentication)
 - Defender IOC list (custom indicators)
+- **`enrich_ips.py`** (3rd-party enrichment: ipinfo.io geo/ISP, vpnapi.io VPN/proxy/Tor, AbuseIPDB abuse score & reports, Shodan ports/services/CVEs/tags)
 
 ### Domain Investigation
 **When to use:** Suspicious DNS queries, phishing domains, C2 communication
@@ -187,18 +188,27 @@ When a user requests an IoC investigation:
    - Defender IP/File alerts (GetDefenderIpAlerts or GetDefenderFileAlerts)
    - Defender IP/File statistics
 
-3. **Run Parallel Queries (Batch 2 - Activity):**
+3. **Run 3rd-Party IP Enrichment (IP IoCs only):**
+   ```powershell
+   python enrich_ips.py <IP_ADDRESS>
+   ```
+   - ipinfo.io: Geolocation, ISP/ASN, hosting provider
+   - vpnapi.io: VPN, proxy, Tor exit node detection
+   - AbuseIPDB: Abuse confidence score, recent attack reports
+   - Shodan: Open ports, services/banners, CVEs, tags (e.g., `c2`, `eol-os`, `self-signed`)
+
+4. **Run Parallel Queries (Batch 2 - Activity):**
    - DeviceNetworkEvents (connections involving IoC)
    - AlertEvidence (alerts with IoC as evidence)
    - SecurityAlert (alerts mentioning IoC)
    - EmailUrlInfo (if domain/URL)
 
-4. **CVE & Vulnerability Correlation:**
-   - Extract CVE IDs from threat intel results
+5. **CVE & Vulnerability Correlation:**
+   - Extract CVE IDs from threat intel results AND Shodan enrichment
    - For each CVE: ListDefenderMachinesByVulnerability
    - Aggregate affected devices
 
-5. **Export to JSON & Generate Summary:**
+6. **Export to JSON & Generate Summary:**
    ```
    temp/ioc_investigation_{ioc_normalized}_{timestamp}.json
    ```
@@ -217,11 +227,12 @@ When a user requests an IoC investigation:
 
 **Required Reporting Points:**
 1. After IoC normalization and type detection
-2. After threat intelligence lookup
-3. After activity/connection analysis
-4. After CVE correlation and device enumeration
-5. After JSON file creation
-6. Final: Total elapsed time
+2. After 3rd-party IP enrichment (IP IoCs)
+3. After Defender/Sentinel threat intelligence lookup
+4. After activity/connection analysis
+5. After CVE correlation and device enumeration
+6. After JSON file creation
+7. Final: Total elapsed time
 
 ---
 
@@ -260,7 +271,37 @@ SHA256: r'^[a-fA-F0-9]{64}$'
 
 ---
 
-### Phase 2: Parallel Threat Intelligence Collection
+### Phase 2: 3rd-Party IP Enrichment (IP Address IoCs)
+
+**MANDATORY for all IP address investigations.** Run `enrich_ips.py` to get external threat intelligence context that is NOT available from Defender/Sentinel native tools.
+
+```powershell
+python enrich_ips.py <IP_ADDRESS_1> <IP_ADDRESS_2> ...
+```
+
+**What it provides:**
+
+| Source | Intelligence |
+|--------|--------------|
+| **ipinfo.io** | Geolocation (city, country, coordinates), ISP/ASN, organization, hosting provider detection |
+| **vpnapi.io** | VPN, proxy, Tor exit node, relay detection |
+| **AbuseIPDB** | Abuse confidence score (0-100), total reports, last reported date, recent reporter comments with attack categories |
+| **Shodan** | Open ports, service/banner details, OS detection, known CVEs, tags (e.g., `c2`, `eol-os`, `self-signed`, `honeypot`), CPEs, hostnames |
+
+**Output:** Per-IP detailed results printed to terminal + JSON export saved to `temp/`.
+
+**Integration with investigation:**
+- **AbuseIPDB score ≥ 75:** 🔴 Strong indicator of malicious activity — flag as high risk
+- **VPN/Proxy/Tor detected:** 🟠 Potential evasion — note in risk assessment
+- **Shodan tags contain `c2`:** 🔴 Known C2 infrastructure — escalate immediately
+- **Shodan CVEs found:** Cross-reference with Phase 5 CVE correlation for organizational exposure
+- **Hosting provider (not residential ISP):** 🟡 May indicate attacker infrastructure
+
+> **Note:** For domain and URL IoCs, extract the resolved IP(s) from DeviceNetworkEvents results and run enrichment on those IPs as a follow-up step.
+
+---
+
+### Phase 3: Parallel Threat Intelligence Collection (Defender & Sentinel)
 
 **CRITICAL:** Run ALL threat intel queries in parallel for speed!
 
@@ -290,20 +331,21 @@ SHA256: r'^[a-fA-F0-9]{64}$'
 
 ---
 
-### Phase 3: CVE Correlation and Vulnerability Management
+### Phase 4: CVE Correlation and Vulnerability Management
 
-**Step 3.1: Extract CVE IDs from Threat Intel**
+**Step 4.1: Extract CVE IDs from Threat Intel AND Enrichment**
 - Parse threat intel results for CVE references (pattern: `CVE-\d{4}-\d{4,}`)
 - Extract from: alert descriptions, threat family info, MITRE techniques
+- **Extract from Shodan enrichment** (`shodan_vulns` field from `enrich_ips.py` output)
 
-**Step 3.2: Query Affected Devices per CVE**
+**Step 4.2: Query Affected Devices per CVE**
 ```
 For each CVE_ID found:
   → ListDefenderMachinesByVulnerability(cveId: CVE_ID)
   → Collect: deviceId, deviceName, osPlatform, exposureLevel
 ```
 
-**Step 3.3: Aggregate Device Exposure**
+**Step 4.3: Aggregate Device Exposure**
 ```json
 {
   "cve_correlation": {
@@ -322,7 +364,7 @@ For each CVE_ID found:
 
 ---
 
-### Phase 4: Activity and Connection Analysis
+### Phase 5: Activity and Connection Analysis
 
 **For IP Address IoCs:**
 ```kql
@@ -382,7 +424,7 @@ union withsource=SourceTable DeviceProcessEvents, DeviceNetworkEvents, DeviceFil
 
 ---
 
-### Phase 5: Export to JSON
+### Phase 6: Export to JSON
 
 Create single JSON file: `temp/ioc_investigation_{ioc_type}_{ioc_normalized}_{timestamp}.json`
 
@@ -836,6 +878,12 @@ Create file: `temp/ioc_investigation_{ioc_type}_{ioc_normalized}_{timestamp}.jso
     "confidence_score": 0-100,
     "verdict": "Malicious|Suspicious|Clean|Unknown"
   },
+  "ip_enrichment": {
+    "geo": { "city": "", "country": "", "org": "", "isp": "" },
+    "vpn_proxy_tor": { "is_vpn": false, "is_proxy": false, "is_tor": false },
+    "abuseipdb": { "abuse_confidence_score": 0, "total_reports": 0, "last_reported": "", "recent_categories": [] },
+    "shodan": { "ports": [], "services": [], "vulns": [], "tags": [], "os": "", "hostnames": [], "cpes": [] }
+  },
   "activity_analysis": {
     "network_connections": {
       "total_connections": 0,
@@ -956,18 +1004,23 @@ If queries return no results, use these defaults:
 
 **Workflow:**
 1. **Identify IoC:** IPv4 Address, normalized: `203.0.113.42`
-2. **Phase 1 - Threat Intel (parallel):**
+2. **3rd-Party Enrichment:**
+   ```powershell
+   python enrich_ips.py 203.0.113.42
+   ```
+   → Get geo, ISP, VPN/proxy/Tor flags, AbuseIPDB score, Shodan ports/CVEs/tags
+3. **Phase 1 - Threat Intel (parallel):**
    - `GetDefenderIpAlerts(ipAddress: "203.0.113.42")`
    - Sentinel ThreatIntelIndicators query
    - `ListDefenderIndicators(indicatorType: "IpAddress", indicatorValue: "203.0.113.42")`
-3. **Phase 2 - Activity Analysis (parallel):**
+4. **Phase 2 - Activity Analysis (parallel):**
    - DeviceNetworkEvents query for IP
    - SigninLogs query for IP
    - AlertEvidence query for IP
-4. **Phase 3 - CVE Correlation:**
-   - Extract CVEs from alerts
+5. **Phase 3 - CVE Correlation:**
+   - Extract CVEs from alerts AND Shodan enrichment
    - For each CVE: `ListDefenderMachinesByVulnerability`
-5. **Export JSON and summarize findings**
+6. **Export JSON and summarize findings** (include enrichment data in JSON export)
 
 ### Example 2: Domain Investigation
 
