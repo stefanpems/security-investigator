@@ -363,13 +363,13 @@ The system **requires** five Model Context Protocol (MCP) servers. All five are 
 
 ### At a Glance
 
-| # | Server | Purpose | Setup Guide | Key Permissions |
+| # | Server | MCP URL | Setup Guide | Key Permissions |
 |---|--------|---------|-------------|-----------------|
-| 1 | **Sentinel Data Lake** | KQL queries on Log Analytics | [Setup](https://learn.microsoft.com/en-us/copilot/security/developer/mcp-get-started) | Log Analytics Reader |
-| 2 | **Microsoft Graph** | User identity, devices, risk | [Setup](https://learn.microsoft.com/en-us/graph/mcp-server/get-started?tabs=http%2Cvscode) | User.Read.All, Device.Read.All |
-| 3 | **Sentinel Triage** | Advanced Hunting, Defender XDR | [Setup](https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-triage-tool) | SecurityReader |
-| 4 | **KQL Search** | Schema validation, query examples | [Setup](https://www.npmjs.com/package/kql-search-mcp) | [GitHub PAT](https://github.com/settings/tokens/new) (`public_repo`) |
-| 5 | **Microsoft Learn** | Official docs and code samples | [Setup](https://github.com/MicrosoftDocs/mcp) | None (free) |
+| 1 | **Sentinel Data Lake** | `https://sentinel.microsoft.com/mcp/data-exploration` | [Setup](https://learn.microsoft.com/en-us/copilot/security/developer/mcp-get-started) | Log Analytics Reader |
+| 2 | **Microsoft Graph** | `https://mcp.svc.cloud.microsoft/enterprise` | [Setup](https://learn.microsoft.com/en-us/graph/mcp-server/get-started?tabs=http%2Cvscode) | User.Read.All, Device.Read.All |
+| 3 | **Sentinel Triage** | `https://sentinel.microsoft.com/mcp/triage` | [Setup](https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-triage-tool) | SecurityReader |
+| 4 | **KQL Search** | `npx -y kql-search-mcp` (stdio) | [Setup](https://www.npmjs.com/package/kql-search-mcp) | [GitHub PAT](https://github.com/settings/tokens/new) (`public_repo`) |
+| 5 | **Microsoft Learn** | `https://learn.microsoft.com/api/mcp` | [Setup](https://github.com/MicrosoftDocs/mcp) | None (free) |
 
 ### 1. Microsoft Sentinel MCP Server
 
