@@ -386,7 +386,22 @@ The system **requires** five Model Context Protocol (MCP) servers. All five are 
 
 **Tools:** `microsoft_graph_suggest_queries`, `microsoft_graph_get`, `microsoft_graph_list_properties`
 
-**Permissions:**
+**⚡ One-time tenant provisioning** (requires **Application Administrator** or **Cloud Application Administrator** role):
+
+```powershell
+# 1. Install the Entra Beta PowerShell module (v1.0.13+)
+Install-Module Microsoft.Entra.Beta -Force -AllowClobber
+
+# 2. Authenticate to your tenant
+Connect-Entra -Scopes 'Application.ReadWrite.All', 'Directory.Read.All', 'DelegatedPermissionGrant.ReadWrite.All'
+
+# 3. Register the MCP Server and grant permissions to VS Code
+Grant-EntraBetaMCPServerPermission -ApplicationName VisualStudioCode
+```
+
+> This only needs to be done **once per tenant**. After provisioning, all users in the tenant can use the Graph MCP server by signing in with their own account.
+
+**Permissions (delegated, per-user):**
 - **User.Read.All** — user profiles and authentication methods
 - **UserAuthenticationMethod.Read.All** — MFA methods
 - **Device.Read.All** — device compliance and enrollment
