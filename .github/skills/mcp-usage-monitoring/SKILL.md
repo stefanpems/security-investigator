@@ -15,7 +15,7 @@ This skill monitors and audits **Model Context Protocol (MCP) server usage** acr
 |------------|-----------------|----------------|
 | **Microsoft Graph MCP Server** | `MicrosoftGraphActivityLogs` | AppId = `e8c77dc2-69b3-43f4-bc51-3213c9d915b4` |
 | **Sentinel Data Lake MCP** | `CloudAppEvents` | RecordType 403, Interface = `IMcpToolTemplate` |
-| **Sentinel Triage MCP** | `LAQueryLogs` | AppId = `6574a0f8-d39b-4090-abbe-6c64ec9003f0` |
+| **Sentinel Triage MCP** | `MicrosoftGraphActivityLogs` + `SigninLogs` | Graph Security API endpoints (`/security/incidents`, `/security/alerts_v2`, `/security/runHuntingQuery`) — **shared surface** (Triage MCP calls cannot be isolated from other consumers of same endpoints) |
 | **Azure MCP Server** | `AzureActivity` | No dedicated AppId — uses `DefaultAzureCredential` |
 | **Sentinel Data Lake — Direct KQL** | `CloudAppEvents` | RecordType 379, Operation = `KQLQueryCompleted` |
 | **Workspace Query Sources (Analytics Tier)** | `LAQueryLogs` | All clients querying Log Analytics workspace |
@@ -181,7 +181,7 @@ When running MCP usage monitoring:
 | AppId | Service | Telemetry Table | Notes |
 |-------|---------|----------------|-------|
 | `e8c77dc2-69b3-43f4-bc51-3213c9d915b4` | Microsoft Graph MCP Server for Enterprise | `MicrosoftGraphActivityLogs` | Read-only Graph API proxy |
-| `6574a0f8-d39b-4090-abbe-6c64ec9003f0` | Sentinel Triage MCP | `LAQueryLogs` | Advanced Hunting & entity investigation |
+| `6574a0f8-d39b-4090-abbe-6c64ec9003f0` | Sentinel Triage MCP (registered AppId) | `LAQueryLogs` (environment-dependent) | Microsoft first-party AppId, same across all tenants. **Primary detection** is via Graph Security API endpoint patterns in `MicrosoftGraphActivityLogs` (Query 7). 🔴 **Field-tested Feb 2026 (two environments):** AppId `6574a0f8` appears in `LAQueryLogs` in **some** environments (1,086 queries in production) but NOT in others (0 in lab). When present, it has **no user attribution** (empty `AADEmail`, empty `RequestClientApp`). The **bulk** of AH downstream queries appear under AppId `fc780465` / `RequestClientApp = "M365D_AdvancedHunting"` with full user attribution (162K queries). Query 7b checks both AppIds. Does NOT appear in `SigninLogs`, `MicrosoftGraphActivityLogs`, or `CloudAppEvents`. |
 | `253895df-6bd8-4eaf-b101-1381ec4306eb` | Sentinel Platform Services App Reg | `SigninLogs` | Sentinel-hosted MCP platform |
 | `1950a258-227b-4e31-a9cf-717495945fc2` | Azure MCP Server (local stdio via DefaultAzureCredential) | `SigninLogs`, `AADNonInteractiveUserSignInLogs`, `LAQueryLogs` | Shared AppId with Azure PowerShell. **Detectable** via UserAgent `azsdk-net-Identity/1.x (.NET 9.x)` in sign-in logs and `csharpsdk,LogAnalyticsPSClient` in LAQueryLogs. Read-only ARM ops don't appear in AzureActivity. |
 | *(none — uses DefaultAzureCredential)* | Azure MCP Server (local stdio) | `AzureActivity` | ARM **write** operations only; read ops not logged. Claims.appid = `1950a258`. Inherits cred from Azure CLI/VS Code |
@@ -210,7 +210,7 @@ When running MCP usage monitoring:
 | `80ccca67-54bd-44ab-8625-4b79c4dc7775` | M365 Security & Compliance Center (Sentinel Portal) | `LAQueryLogs` | `ASI_Portal`, `ASI_Portal_Connectors` — Sentinel Portal backend, NOT an MCP server |
 | `95a5d94c-a1a0-40eb-ac6d-48c5bdee96d5` | Azure Portal — AppInsightsPortalExtension | `LAQueryLogs` | Azure Portal blade for Log Analytics Usage dashboards/workbooks. `RequestClientApp` = `AppInsightsPortalExtension`. Executes billing/usage queries (e.g., `Usage \| where IsBillable`). NOT MCP, NOT VS Code — runs when user opens Workspace Usage Dashboard in browser. No SPN or app registration in tenant (platform-level first-party app). Not in merill/microsoft-info known apps list. |
 | `de8c33bb-995b-4d4a-9d04-8d8af5d59601` | PowerPlatform-AzureMonitorLogs-Connector | `AADNonInteractiveUserSignInLogs`, `LAQueryLogs` | Logic Apps → Log Analytics (NOT MCP) |
-| `fc780465-2017-40d4-a0c5-307022471b92` | Sentinel Engine (analytics rules, UEBA) | `LAQueryLogs` | Built-in scheduled query engine (NOT MCP) |
+| `fc780465-2017-40d4-a0c5-307022471b92` | Sentinel Engine (analytics rules, UEBA, Advanced Hunting backend) | `LAQueryLogs` | Built-in scheduled query engine (NOT MCP). Also serves as the **execution backend for Advanced Hunting** — `RequestClientApp = "M365D_AdvancedHunting"` indicates AH queries from Triage MCP or Defender portal that hit connected LA tables (see Query 7b). Separate from analytics rules (`RequestClientApp` empty or other values). |
 
 ---
 
@@ -225,7 +225,7 @@ Microsoft Sentinel exposes **three official MCP collections**, each at a distinc
 | Collection | Endpoint URL | Purpose | Monitored by This Skill |
 |------------|-------------|---------|-------------------------|
 | **Data Exploration** | `https://sentinel.microsoft.com/mcp/data-exploration` | `query_lake`, `search_tables`, `list_sentinel_workspaces`, entity analyzer | ✅ Phase 3 (CloudAppEvents) |
-| **Triage** | `https://sentinel.microsoft.com/mcp/triage` | Incident triage, Advanced Hunting, entity investigation | ✅ Phase 2 (LAQueryLogs) |
+| **Triage** | `https://sentinel.microsoft.com/mcp/triage` | Incident triage, Advanced Hunting, entity investigation | ✅ Phase 2 (MicrosoftGraphActivityLogs — Graph Security API endpoints) |
 | **Security Copilot Agent Creation** | `https://sentinel.microsoft.com/mcp/security-copilot-agent-creation` | Create Microsoft Security Copilot agents for complex workflows | ❌ Not yet monitored |
 
 **Sentinel Custom MCP Tools:** Organizations can create their own MCP tools by exposing saved KQL queries from Advanced Hunting as MCP tools. These execute through the same Sentinel MCP infrastructure and are audited in `CloudAppEvents` (RecordType 403) alongside built-in tools. See [Create custom Sentinel MCP tools](https://learn.microsoft.com/en-us/azure/sentinel/datalake/sentinel-mcp-create-custom-tool).
@@ -505,13 +505,46 @@ Collect:
 
 ### Phase 2: Sentinel Triage MCP Analysis
 
-**Data sources:** `SigninLogs`, `LAQueryLogs`  
-**Filter:** ResourceDisplayName = `Sentinel Platform Services` (SigninLogs), Triage MCP AppId (LAQueryLogs)
+**Data sources:** `SigninLogs`, `MicrosoftGraphActivityLogs`  
+**Filter:** ResourceDisplayName = `Sentinel Platform Services` (SigninLogs); Graph Security API endpoints in `MicrosoftGraphActivityLogs`
+
+**Detection Method (Field-Tested Feb 2026):**
+
+The Sentinel Triage MCP uses **delegated authentication** — Graph API calls carry the **client application's AppId** (e.g., VS Code `aebc6443`, Security Copilot API `bb3d68c2`), NOT the Triage MCP server's registered AppId (`6574a0f8`). AppId `6574a0f8` does NOT appear in `MicrosoftGraphActivityLogs`, `SigninLogs`, or `CloudAppEvents`. In `LAQueryLogs`, **two AppIds carry AH downstream queries** (field-tested Feb 2026 across two environments):
+
+1. **`fc780465` / `M365D_AdvancedHunting`** — Primary path. Carries ~99% of AH query volume with full user attribution. Present in all environments.
+2. **`6574a0f8`** — Secondary path. Environment-dependent (appeared in production, absent in lab). No user or client app attribution (empty `AADEmail`, empty `RequestClientApp`). ~0.7% of total AH volume when present.
+
+Query 7b checks both AppIds. See [Known Pitfalls](#triage-mcp-appid-in-laquerylogsdual-appid-behavior-field-tested-feb-2026) for cross-environment comparison data.
+
+> 🔴 **ATTRIBUTION LIMITATION:** Because Triage MCP calls are indistinguishable from other consumers of the same Graph Security API endpoints, **Query 7 measures the shared API surface activity, NOT Triage MCP specifically.** The same `/security/incidents`, `/security/alerts_v2`, and `/security/runHuntingQuery` endpoints are also called by Sentinel Engine, Security Copilot, SOAR platforms, ticketing integrations, custom scripts, and the Defender portal. There is currently no telemetry field that isolates Triage MCP's share of this traffic.
+
+The detection approach searches `MicrosoftGraphActivityLogs` for **Graph Security API endpoint patterns** to confirm the API surface is active:
+- `/security/incidents` — `ListIncidents`, `GetIncidentById`
+- `/security/alerts_v2` — `ListAlerts`, `GetAlertById`
+- `/security/runHuntingQuery` — `RunAdvancedHuntingQuery`
+
+These endpoints are shared across multiple consumers. Known client AppIds and their likely source:
+
+| AppId | Client | Source Category |
+|-------|--------|----------------|
+| `bb3d68c2` | Security Copilot API | May include Triage MCP calls OR native Copilot operations |
+| `7b7b3966` | Custom/Third-party | May include Triage MCP calls OR custom scripts |
+| `aebc6443` | Visual Studio Code | Most likely Triage MCP (VS Code MCP extension) |
+| `98785600` | Automated poller | Likely SOAR/ticketing integration (not MCP) |
+| `9ee7b58d` | Automated poller | Likely SOAR/ticketing integration (not MCP) |
+| `fc780465` | Sentinel Engine | Microsoft platform automation (not MCP) |
+
+> ⚠️ **Disambiguation guidance:** Use AppId + call pattern heuristics to estimate which calls *may* originate from Triage MCP vs. other consumers. High-volume single-user polling (e.g., 40K GET calls/30d) = automated integration. Multi-user POST-heavy hunting queries = more likely interactive MCP or Copilot usage. But **definitive attribution is not possible** with current telemetry.
+
+> 🔵 **`MicrosoftGraphActivityLogs` retention** varies by environment (depends on Log Analytics workspace configuration and diagnostic settings). Do not assume a fixed retention period — check with a baseline row count query first.
 
 Collect:
 - Authentication events by client app (VS Code, Copilot Studio, browser) with user, IP, OS, country (Query 5)
 - Client app usage breakdown with distinct user counts and last-seen timestamps (Query 6)
-- LAQueryLogs for Triage MCP AppId with query counts and CPU usage (Query 7)
+- Graph Security API endpoint usage from `MicrosoftGraphActivityLogs` — incident/alert/hunting calls by AppId (Query 7)
+- LAQueryLogs for Advanced Hunting downstream queries (Query 7b). Checks **two AppIds**: `fc780465` / `M365D_AdvancedHunting` (bulk of AH queries, full user attribution) and `6574a0f8` (Triage MCP direct path, environment-dependent, no user attribution). Captures queries from any `RunAdvancedHuntingQuery` consumer (Triage MCP, Defender portal, Security Copilot) that hit connected LA tables. XDR-native tables (DeviceEvents, EmailEvents) don't appear here.
+- Portal/Platform query volume from LAQueryLogs for governance context (Query 7c)
 
 ### Phase 3: Sentinel Data Lake MCP Analysis
 
@@ -745,28 +778,112 @@ SigninLogs
 | order by SignInCount desc
 ```
 
-### Query 7: LAQueryLogs — MCP Server & Client Query Volume
+### Query 7: Graph Security API Surface Activity (Shared — includes but is not limited to Triage MCP)
 
 ```kql
-// Query volume for known MCP server AppIds and Portal/Platform AppIds in LAQueryLogs
-// NOTE: 80ccca67 is the M365 Security & Compliance Center (Sentinel Portal backend) — NOT an MCP server.
-// It appears as ASI_Portal / ASI_Portal_Connectors. Include for governance but categorize as Portal.
-// NOTE: 95a5d94c is Azure Portal AppInsightsPortalExtension — NOT MCP, NOT VS Code.
-// It executes Usage dashboard/workbook queries when user opens Workspace Usage Dashboard in browser.
-let mcp_server_appids = dynamic([
-    "6574a0f8-d39b-4090-abbe-6c64ec9003f0"   // Sentinel Triage MCP (server)
-]);
+// Measure Graph Security API endpoint activity from MicrosoftGraphActivityLogs.
+// ATTRIBUTION LIMITATION: This query captures ALL consumers of these endpoints,
+// not just Triage MCP. The same endpoints are called by Sentinel Engine, Security Copilot,
+// SOAR platforms, ticketing integrations, custom scripts, and the Defender portal.
+// Triage MCP's share cannot be isolated — it uses delegated auth and its registered
+// AppId (6574a0f8) does NOT appear in any telemetry table.
+//
+// What this query DOES tell you:
+//   - Whether the API surface that Triage MCP depends on is active
+//   - Which client AppIds are calling security endpoints
+//   - Volume/pattern heuristics to estimate interactive vs automated usage
+//
+// What this query DOES NOT tell you:
+//   - How many calls specifically came through Triage MCP vs other consumers
+//
+// Field-tested Feb 2026: Confirmed shared-surface behavior across environments.
+MicrosoftGraphActivityLogs
+| where TimeGenerated >= ago(30d)
+| where RequestUri has "/security/incidents" 
+    or RequestUri has "/security/alerts" 
+    or RequestUri has "/security/runHuntingQuery"
+| extend Endpoint = extract(@"/v\d\.\d/(.+?)(\?|$)", 1, RequestUri)
+| summarize 
+    Calls = count(),
+    DistinctUsers = dcount(UserId),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by AppId, RequestMethod, Endpoint
+| order by Calls desc
+| take 25
+```
+
+### Query 7b: LAQueryLogs — Advanced Hunting Downstream Queries (Supplementary Signal)
+
+```kql
+// SUPPLEMENTARY detection: Advanced Hunting queries (from Triage MCP, Defender portal,
+// Security Copilot, or any Graph Security API consumer calling RunAdvancedHuntingQuery)
+// that hit connected Log Analytics workspace tables.
+//
+// 🔴 FIELD-TESTED Feb 2026 (two environments):
+// Advanced Hunting downstream queries appear under TWO AppIds in LAQueryLogs:
+//
+//   1. fc780465 (Sentinel Engine) + RequestClientApp "M365D_AdvancedHunting"
+//      - Carries the BULK of AH queries (~150x more volume)
+//      - Full user attribution (AADEmail populated)
+//      - Present in ALL environments tested
+//
+//   2. 6574a0f8 (Sentinel Triage MCP registered AppId)
+//      - Environment-dependent: present in production, absent in lab
+//      - NO user attribution (AADEmail = empty, RequestClientApp = empty)
+//      - Appears to be a separate backend execution path
+//      - When present, represents ~0.7% of total AH query volume
+//
+// This query checks BOTH AppIds to capture all AH downstream activity.
+//
+// This is a DOWNSTREAM signal — it only fires when RunAdvancedHuntingQuery targets
+// Sentinel-connected LA tables (SigninLogs, AuditLogs, SecurityAlert, etc.).
+// Queries hitting XDR-native tables (DeviceEvents, EmailEvents, etc.) stay in the
+// Defender XDR backend and never appear here.
+//
+// Use alongside Query 7 (MicrosoftGraphActivityLogs) for complete Triage MCP coverage:
+//   - Query 7 = PRIMARY: catches ALL API surface calls (ListIncidents, ListAlerts,
+//     RunAdvancedHuntingQuery) via Graph Security API endpoints
+//   - Query 7b = SUPPLEMENTARY: catches downstream query execution when AH hits LA tables
+//
+// ATTRIBUTION LIMITATION: Cannot distinguish Triage MCP AH queries from Defender portal
+// AH queries or Security Copilot AH queries. fc780465 entries all show as
+// M365D_AdvancedHunting; 6574a0f8 entries have no client app or user attribution.
+LAQueryLogs
+| where TimeGenerated >= ago(30d)
+| where (AADClientId == "fc780465-2017-40d4-a0c5-307022471b92" and RequestClientApp == "M365D_AdvancedHunting")
+    or AADClientId == "6574a0f8-d39b-4090-abbe-6c64ec9003f0"
+| extend AppLabel = case(
+    AADClientId == "fc780465-2017-40d4-a0c5-307022471b92", "AH Backend (fc780465)",
+    AADClientId == "6574a0f8-d39b-4090-abbe-6c64ec9003f0", "Triage MCP Direct (6574a0f8)",
+    "Unknown")
+| summarize 
+    QueryCount = count(),
+    DistinctUsers = dcount(AADEmail),
+    Users = make_set(AADEmail, 10),
+    AvgCPUMs = avg(StatsCPUTimeMs),
+    TotalRowsReturned = sum(ResponseRowCount),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by AppLabel, AADClientId, RequestClientApp
+| order by QueryCount desc
+```
+
+### Query 7c: LAQueryLogs — Portal & Platform Query Volume (Non-MCP Governance)
+
+```kql
+// Query volume for Portal/Platform AppIds in LAQueryLogs (governance context).
+// NOTE: These are NOT MCP servers — included for workspace query governance baseline.
+// 80ccca67 = M365 Security & Compliance Center (Sentinel Portal backend)
+// 95a5d94c = Azure Portal AppInsightsPortalExtension (Usage dashboards)
 let portal_appids = dynamic([
     "80ccca67-54bd-44ab-8625-4b79c4dc7775",  // M365 Security & Compliance Center (Sentinel Portal)
     "95a5d94c-a1a0-40eb-ac6d-48c5bdee96d5"   // Azure Portal — AppInsightsPortalExtension (Usage dashboards)
 ]);
 LAQueryLogs
 | where TimeGenerated >= ago(30d)
-| where AADClientId in (mcp_server_appids) or AADClientId in (portal_appids)
-| extend Category = case(
-    AADClientId in (mcp_server_appids), "MCP Server",
-    AADClientId in (portal_appids), "Portal/Platform",
-    "Other")
+| where AADClientId in (portal_appids)
+| extend Category = "Portal/Platform"
 | summarize 
     QueryCount = count(),
     DistinctUsers = dcount(AADEmail),
@@ -904,10 +1021,10 @@ let mcp_graph = MicrosoftGraphActivityLogs
 | where TimeGenerated >= ago(30d)
 | where AppId == "e8c77dc2-69b3-43f4-bc51-3213c9d915b4"
 | summarize Count = count() by Source = "Graph MCP", Category = "MCP", bin(TimeGenerated, 1d);
-let mcp_triage = LAQueryLogs
+let mcp_triage = MicrosoftGraphActivityLogs
 | where TimeGenerated >= ago(30d)
-| where AADClientId == "6574a0f8-d39b-4090-abbe-6c64ec9003f0"
-| summarize Count = count() by Source = "Sentinel Triage MCP", Category = "MCP", bin(TimeGenerated, 1d);
+| where RequestUri has "/security/incidents" or RequestUri has "/security/alerts" or RequestUri has "/security/runHuntingQuery"
+| summarize Count = count() by Source = "Sentinel Triage MCP (Graph Security API)", Category = "MCP", bin(TimeGenerated, 1d);
 let sentinel_portal = LAQueryLogs
 | where TimeGenerated >= ago(30d)
 | where AADClientId == "80ccca67-54bd-44ab-8625-4b79c4dc7775"
@@ -1271,7 +1388,7 @@ CloudAppEvents
 
 | Tier | Data Source | MCP Sources | Non-MCP Sources |
 |------|------------|-------------|-----------------|
-| **Analytics Tier** | `LAQueryLogs` | Sentinel Triage MCP (`6574a0f8`) | Sentinel Portal (`80ccca67`), Sentinel Engine (`fc780465`), Logic Apps (`de8c33bb`) |
+| **Analytics Tier** | `LAQueryLogs` | AH backend `fc780465` / `M365D_AdvancedHunting` + Triage MCP direct `6574a0f8` *(supplementary — captures AH queries from Triage MCP, Defender portal, Security Copilot that hit connected LA tables; dual-AppId, see Query 7b)* | Sentinel Portal (`80ccca67`), Sentinel Engine analytics (`fc780465`, non-AH), Logic Apps (`de8c33bb`) |
 | **Data Lake Tier** | `CloudAppEvents` | Data Lake MCP (RecordType 403, `IMcpToolTemplate`) | Direct KQL (RecordType 379, `KqsService`) |
 | **Graph API** | `MicrosoftGraphActivityLogs` | Graph MCP (`e8c77dc2`) | — |
 | **Azure MCP** | `SigninLogs`, `AADNonInteractiveUserSignInLogs`, `LAQueryLogs` | Azure MCP Server (`1950a258` + UA `azsdk-net-Identity`) | Azure PowerShell (same AppId, different UA) |
@@ -1382,9 +1499,10 @@ The inline report MUST include these sections in order:
    - Top endpoints table (endpoint, call count, % of total, last used)
    - Sensitive API access summary with user attribution
 4. **Sentinel Triage MCP Analysis**
-   - Authentication events by client app
-   - Query volume by MCP AppId (Analytics tier via LAQueryLogs)
-   - User attribution table
+   - Authentication events by client app (Sentinel Platform Services sign-ins)
+   - Graph Security API surface activity from `MicrosoftGraphActivityLogs` — shared endpoint usage (incidents, alerts, hunting queries by AppId)
+   - ⚠️ Attribution limitation note: calls cannot be isolated to Triage MCP vs other consumers
+   - User attribution table with source category estimates
 5. **Sentinel Data Lake MCP Analysis**
    - MCP tool usage summary (success/failure, avg duration)
    - Tool breakdown table (query_lake, list_sentinel_workspaces, search_tables, etc.)
@@ -1427,7 +1545,7 @@ Analytics Tier Query Sources — Last 30d (LAQueryLogs)
 ──────────────────────────────────────────
 Sentinel Engine    ████████████████████████████████████ 88.4%  (10,354)
 Logic Apps         ████                                  7.0%     (821)
-Sentinel Triage MCP █                                    4.1%     (481)
+Triage MCP (Graph)  █                                    4.1%     (481)
 Sentinel Portal                                          0.4%      (48)
 ──────────────────────────────────────────
 MCP Servers: 4.1% │ Portal: 0.4% │ Platform: 95.4%
@@ -1510,15 +1628,18 @@ When outputting to markdown file, include everything from the inline format PLUS
 
 ## Sentinel Triage MCP
 
-### Authentication Events by Client
+### Authentication Events by Client (Sentinel Platform Services)
 | Client App | AppId | Sign-Ins | Users | Last Seen |
 |------------|-------|----------|-------|-----------|
 | ... | ... | ... | ... | ... |
 
-### Query Volume (Analytics Tier — LAQueryLogs)
-| AppId | Service | Queries | Users | Avg CPU (ms) | Avg Rows/Query | Total Rows Returned |
-|-------|---------|---------|-------|-------------|----------------|---------------------|
-| ... | ... | ... | ... | ... | ... |
+### Graph Security API Surface Activity (MicrosoftGraphActivityLogs)
+
+> ⚠️ **Attribution limitation:** These calls represent ALL consumers of Graph Security API endpoints — not exclusively Triage MCP. Sentinel Engine, Security Copilot, SOAR platforms, and other integrations share the same endpoints. Triage MCP's specific share cannot be isolated.
+
+| AppId | Endpoint | Method | Calls | Users | Source Estimate | First Seen | Last Seen |
+|-------|----------|--------|-------|-------|-----------------|------------|-----------|
+| ... | ... | ... | ... | ... | ... | ... |
 
 ---
 
@@ -1768,6 +1889,20 @@ For full query definitions, deployment checklist, and companion analytics rule t
 - When Azure MCP Server is deployed in remote HTTP mode (e.g., Azure Container Apps), a dedicated Entra app registration provides a unique AppId — check if one is configured
 - The `DefaultAzureCredential` chain may resolve to different credential types depending on environment (Azure CLI, VS Code, managed identity), but the .NET runtime UserAgent is always present
 - AzureActivity has a ~2-4 hour ingestion lag; SigninLogs has ~1-2 hour lag; LAQueryLogs and AADNonInteractiveUserSignInLogs are near-real-time (~5-15 min)
+
+### Triage MCP AppId in LAQueryLogs — Dual-AppId Behavior (Field-Tested Feb 2026)
+**Problem:** AppId `6574a0f8-d39b-4090-abbe-6c64ec9003f0` (Sentinel Triage MCP) was originally expected to appear in `LAQueryLogs` as the primary downstream signal for Advanced Hunting queries. Cross-environment testing revealed inconsistent and dual-AppId behavior:  
+
+| Environment | `6574a0f8` (Triage MCP) | `fc780465` / `M365D_AdvancedHunting` |
+|-------------|------------------------|-------------------------------------|
+| **Production** | ✅ 1,086 queries (30d) — but **no user attribution** (empty `AADEmail`, empty `RequestClientApp`) | ✅ 162,642 queries (30d) — full user attribution, 4 distinct users |
+| **Lab (CyberSOC)** | ❌ 0 queries (30d) | ✅ 439 queries (4h window) — full user attribution |
+
+**Root Cause:** Two execution paths exist for AH queries hitting connected LA tables:
+1. **Primary path** (`fc780465` / `M365D_AdvancedHunting`): The Advanced Hunting execution backend processes the query and logs it under its own identity. Carries ~99% of volume with full user attribution.
+2. **Secondary path** (`6574a0f8`): The Triage MCP registered AppId appears in some environments via a separate backend execution path. No user or client app attribution. Environment-dependent — may relate to workspace configuration or tenant feature flags.
+
+**Solution:** Query 7b now checks BOTH AppIds: `fc780465` with `RequestClientApp == "M365D_AdvancedHunting"` (primary) and `6574a0f8` (secondary). This captures all AH downstream activity regardless of environment. Note the shared-surface attribution limitation — cannot distinguish Triage MCP from Defender portal or Security Copilot AH queries.
 
 ### MicrosoftGraphActivityLogs Availability
 **Problem:** Graph activity logs are NOT enabled by default. If the table is empty or doesn't exist, Graph MCP analysis cannot proceed.  

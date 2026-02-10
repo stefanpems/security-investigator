@@ -39,7 +39,7 @@ This skill detects **scope drift** — the gradual, often imperceptible expansio
 
 1. **[Critical Workflow Rules](#-critical-workflow-rules---read-first-)** - Start here!
 2. **[Output Modes](#output-modes)** - Inline chat vs. Markdown file
-3. **[Quick Start](#quick-start-tldr)** - 6-step investigation pattern
+3. **[Quick Start](#quick-start-tldr)** - 7-step investigation pattern
 4. **[Drift Score Formula](#drift-score-formula)** - Weighted composite scoring (Interactive: 7 dimensions, Non-Interactive: 6 dimensions)
 5. **[Execution Workflow](#execution-workflow)** - Complete 4-phase process
 6. **[Sample KQL Queries](#sample-kql-queries)** - Validated query patterns (Queries 6-13)
@@ -256,6 +256,28 @@ This prevents an entity averaging 1 sign-in/day from triggering at 6 sign-ins/da
 
 **User-specific note:** Non-interactive sign-ins often have very high volume (thousands/day) from background token refreshes. The floor is less likely to trigger for non-interactive, but always check interactive separately.
 
+### Failure Rate Dimension — Delta-to-Ratio Conversion
+
+**CRITICAL:** The FailRate dimension is a **percentage-point delta**, not a multiplicative ratio like the other dimensions. Convert it to the same 0–200+ scale using this formula:
+
+```
+FailRateDelta = RecentFailRate - BaselineFailRate  (percentage points)
+FailRateRatio = 100 + (FailRateDelta × 10)         (scaled: each +1pp = +10 on the ratio scale)
+```
+
+| Baseline FailRate | Recent FailRate | Delta | Ratio | Interpretation |
+|-------------------|-----------------|-------|-------|----------------|
+| 5.00% | 5.00% | 0.00 | 100.0 | No change |
+| 5.00% | 8.00% | +3.00 | 130.0 | Moderate increase |
+| 5.00% | 12.00% | +7.00 | 170.0 | 🔴 Above threshold |
+| 5.00% | 2.00% | -3.00 | 70.0 | Improving (contracting) |
+| 0.00% | 0.00% | 0.00 | 100.0 | No change (both clean) |
+| 0.00% | 5.00% | +5.00 | 150.0 | 🟡 At threshold — new failures appearing |
+
+**Edge case:** Baseline = 0% avoids division-by-zero because delta is additive, not multiplicative. The scaling factor (×10) means each percentage point of failure rate increase maps to 10 points on the drift scale. This keeps FailRate on the same magnitude as the other dimensions.
+
+**In the ASCII chart:** Show the ratio as the bar fill percentage and append the raw delta as direction indicator: `^+X.XX` (increasing) or `v-X.XX` (decreasing).
+
 ---
 
 ## Execution Workflow
@@ -318,7 +340,6 @@ This is the primary query that computes per-user behavioral profiles and drift m
 // Substitute <UPN> with user's UPN
 let baselineStart = ago(97d);
 let baselineEnd = ago(7d);
-let recentStart = ago(7d);
 SigninLogs
 | where UserPrincipalName =~ '<UPN>'
 | where TimeGenerated >= baselineStart
@@ -350,7 +371,6 @@ SigninLogs
 // Substitute <UPN> with user's UPN
 let baselineStart = ago(97d);
 let baselineEnd = ago(7d);
-let recentStart = ago(7d);
 AADNonInteractiveUserSignInLogs
 | where UserPrincipalName =~ '<UPN>'
 | where TimeGenerated >= baselineStart
@@ -451,7 +471,7 @@ let relevantAlerts = SecurityAlert
 | where TimeGenerated > ago(97d)
 | where Entities has '<UPN>' or CompromisedEntity has '<UPN>'
 | summarize arg_max(TimeGenerated, *) by SystemAlertId
-| project SystemAlertId, AlertName, AlertSeverity, ProductName, ProductComponentName, Tactics, TimeGenerated;
+| project SystemAlertId, AlertName, AlertSeverity, ProductName, ProductComponentName, Tactics, Techniques, TimeGenerated;
 SecurityIncident
 | where CreatedTime > ago(97d)
 | summarize arg_max(TimeGenerated, *) by IncidentNumber
@@ -616,7 +636,7 @@ The inline report MUST include these sections in order:
 2. **Interactive Drift Score** — 7-dimension breakdown with ratios
 3. **Non-Interactive Drift Score** — 6-dimension breakdown with ratios
 4. **Flagged Dimension Deep Dive** (for any dimension > 150%) — Baseline vs. recent comparison, new IPs/apps/devices, dimension bar chart
-5. **Correlated Signal Summary** — Findings from all data sources in a single table
+5. **Correlated Signal Summary** — AuditLogs, SecurityAlert/Incident, and anomaly table findings in a single table
 6. **Identity Protection Summary** — Risk events, risk states, risk levels
 7. **Cloud App Activity Drift** — CloudAppEvents baseline vs. recent: action types, apps, admin ops, impersonation, new countries/IPs
 8. **Email Pattern Drift** — EmailEvents baseline vs. recent: volume, direction, sender domains, threat emails

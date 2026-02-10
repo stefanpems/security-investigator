@@ -1,13 +1,13 @@
 ---
 name: scope-drift-detection-spn
-description: 'Use this skill when asked to detect scope drift, behavioral expansion, or gradual privilege/access creep in service principals or automation accounts. Triggers on keywords like "scope drift", "service principal drift", "SPN behavioral change", "automation account drift", "baseline deviation", "access expansion", or when investigating whether a service principal has gradually expanded beyond its intended purpose. This skill builds a 90-day behavioral baseline per SPN, compares it with 7-day recent activity, computes a weighted Drift Score across 5 dimensions, and correlates with SecurityAlert, AuditLogs, and DeviceNetworkEvents for corroborating evidence.'
+description: 'Use this skill when asked to detect scope drift, behavioral expansion, or gradual privilege/access creep in service principals or automation accounts. Triggers on keywords like "scope drift", "service principal drift", "SPN behavioral change", "automation account drift", "baseline deviation", "access expansion", or when investigating whether a service principal has gradually expanded beyond its intended purpose. This skill builds a 90-day behavioral baseline per SPN, compares it with 7-day recent activity, computes a weighted Drift Score across 5 dimensions, and correlates with SecurityAlert and AuditLogs for corroborating evidence.'
 ---
 
 # Service Principal Scope Drift Detection — Instructions
 
 ## Purpose
 
-> **Credit:** The scope drift detection concept for service principals was inspired by [Iftekhar Hussain](https://techcommunity.microsoft.com/users/iftekhar%20hussain/20243)'s article *[The Agentic SOC Era: How Sentinel MCP Enables Autonomous Security Reasoning](https://techcommunity.microsoft.com/blog/microsoftsentinelblog/the-agentic-soc-era-how-sentinel-mcp-enables-autonomous-security-reasoning/4491003)* (Feb 2026), which demonstrated multi-source correlation across AADServicePrincipalSignInLogs, AuditLogs, DeviceNetworkEvents, and SecurityAlert to build 90-day behavioral baselines and surface drift via weighted scoring.
+> **Credit:** The scope drift detection concept for service principals was inspired by [Iftekhar Hussain](https://techcommunity.microsoft.com/users/iftekhar%20hussain/20243)'s article *[The Agentic SOC Era: How Sentinel MCP Enables Autonomous Security Reasoning](https://techcommunity.microsoft.com/blog/microsoftsentinelblog/the-agentic-soc-era-how-sentinel-mcp-enables-autonomous-security-reasoning/4491003)* (Feb 2026), which demonstrated multi-source correlation across AADServicePrincipalSignInLogs, AuditLogs, and SecurityAlert to build 90-day behavioral baselines and surface drift via weighted scoring.
 
 This skill detects **scope drift** — the gradual, often imperceptible expansion of access or behavior beyond an established baseline — in **Entra ID service principals**. Unlike sudden compromise (which triggers alerts), scope drift is a slow-burn pattern that evades threshold-based detections.
 
@@ -35,10 +35,10 @@ This skill detects **scope drift** — the gradual, often imperceptible expansio
 
 1. **[Critical Workflow Rules](#-critical-workflow-rules---read-first-)** - Start here!
 2. **[Output Modes](#output-modes)** - Inline chat vs. Markdown file
-3. **[Quick Start](#quick-start-tldr)** - 6-step investigation pattern
+3. **[Quick Start](#quick-start-tldr)** - 7-step investigation pattern
 4. **[Drift Score Formula](#drift-score-formula)** - Weighted composite scoring (5 dimensions)
 5. **[Execution Workflow](#execution-workflow)** - Complete 4-phase process
-6. **[Sample KQL Queries](#sample-kql-queries)** - Validated query patterns (Queries 1-5)
+6. **[Sample KQL Queries](#sample-kql-queries)** - Validated query patterns (Queries 1-4)
 7. **[Report Template](#report-template)** - Output format specification
 8. **[Known Pitfalls](#known-pitfalls)** - Edge cases and false positives
 9. **[Error Handling](#error-handling)** - Troubleshooting guide
@@ -53,7 +53,7 @@ This skill detects **scope drift** — the gradual, often imperceptible expansio
 2. **ALWAYS ask the user for output mode** if not specified: inline chat summary or markdown file report (or both)
 3. **ALWAYS build baseline FIRST** before comparing recent activity
 4. **ALWAYS apply the low-volume denominator floor** to prevent false-positive drift scores on sparse baselines
-5. **ALWAYS correlate across all required data sources** (AADServicePrincipalSignInLogs, AuditLogs, SecurityAlert, DeviceNetworkEvents)
+5. **ALWAYS correlate across all required data sources** (AADServicePrincipalSignInLogs, AuditLogs, SecurityAlert)
 6. **ALWAYS run independent queries in parallel** for performance
 7. **NEVER report a drift flag without corroborating evidence** from at least one secondary data source
 
@@ -65,7 +65,6 @@ This skill detects **scope drift** — the gradual, often imperceptible expansio
 | `AuditLogs` | ✅ Corroboration | Permission/credential/role changes |
 | `SecurityAlert` | ✅ Corroboration | Corroborating alert evidence |
 | `SecurityIncident` | ✅ Corroboration | Real alert status/classification |
-| `DeviceNetworkEvents` | ✅ Corroboration | Network activity correlation |
 
 ---
 
@@ -131,7 +130,7 @@ When a user requests SPN scope drift detection:
 2. **Determine Output Mode** → Ask if not specified: inline, markdown file, or both
 3. **Run Phase 1** → Query 1 (AADServicePrincipalSignInLogs baseline vs recent)
 4. **Apply Entity Scaling** → Compute drift scores, rank SPNs, apply tiered depth limits (see [Entity Scaling](#entity-scaling-large-environments))
-5. **Run Phases 2-3** → Queries 2-5 (AuditLogs + SecurityAlert + DeviceNetworkEvents) — scoped per tier
+5. **Run Phases 2-3** → Queries 2-4 (AuditLogs + SecurityAlert) — scoped per tier
 6. **Compute Final Assessment** → Combine drift scores with corroborating evidence
 7. **Output Results** → Render in selected mode(s) with tiered depth
 
@@ -139,7 +138,7 @@ When a user requests SPN scope drift detection:
 
 ## Entity Scaling (Large Environments)
 
-**Problem:** In small tenants, running Queries 2–5 for every SPN is fine. In enterprise environments with hundreds or thousands of service principals, running deep-dive queries for every flagged entity is prohibitively expensive and produces unreadable reports.
+**Problem:** In small tenants, running Queries 2–4 for every SPN is fine. In enterprise environments with hundreds or thousands of service principals, running deep-dive queries for every flagged entity is prohibitively expensive and produces unreadable reports.
 
 **Solution:** After Phase 1 computes drift scores for all SPNs, apply tiered depth based on entity count and drift severity.
 
@@ -160,7 +159,7 @@ After computing drift scores and ranking all SPNs, assign tiers:
 
 | Tier | Entities | Queries Run | Report Depth |
 |------|----------|-------------|--------------|
-| **Tier 1** (Full) | Top N by DriftScore | All: Q2, Q3, Q4, Q5 | Full deep dive: ASCII chart, dimension table, new resources/IPs/locations, AuditLog changes, alerts, network activity |
+| **Tier 1** (Full) | Top N by DriftScore | All: Q2, Q3, Q4 | Full deep dive: ASCII chart, dimension table, new resources/IPs/locations, AuditLog changes, alerts |
 | **Tier 2** (Summary) | Next 15 flagged SPNs (or remaining if < 15) | Q4 only (SecurityAlert correlation) | One-line summary per SPN: score, top 3 new resources, new IPs, flag status |
 | **Tier 3** (Score only) | All remaining flagged SPNs | None beyond Phase 1 | Row in ranking table: SPN name, drift score, dimension ratios, flag emoji |
 | **Stable** | SPNs ≤ 150% | None beyond Phase 1 | Omitted from deep dives. Included in summary statistics only. |
@@ -225,6 +224,28 @@ IF BL_DailyAvg < 10:
 
 This prevents an entity averaging 1 sign-in/day from triggering at 6 sign-ins/day (600% ratio but trivial absolute volume).
 
+### Failure Rate Dimension — Delta-to-Ratio Conversion
+
+**CRITICAL:** The FailRate dimension is a **percentage-point delta**, not a multiplicative ratio like the other dimensions. Convert it to the same 0–200+ scale using this formula:
+
+```
+FailRateDelta = RecentFailRate - BaselineFailRate  (percentage points)
+FailRateRatio = 100 + (FailRateDelta × 10)         (scaled: each +1pp = +10 on the ratio scale)
+```
+
+| Baseline FailRate | Recent FailRate | Delta | Ratio | Interpretation |
+|-------------------|-----------------|-------|-------|----------------|
+| 5.00% | 5.00% | 0.00 | 100.0 | No change |
+| 5.00% | 8.00% | +3.00 | 130.0 | Moderate increase |
+| 5.00% | 12.00% | +7.00 | 170.0 | 🔴 Above threshold |
+| 5.00% | 2.00% | -3.00 | 70.0 | Improving (contracting) |
+| 0.00% | 0.00% | 0.00 | 100.0 | No change (both clean) |
+| 0.00% | 5.00% | +5.00 | 150.0 | 🟡 At threshold — new failures appearing |
+
+**Edge case:** Baseline = 0% avoids division-by-zero because delta is additive, not multiplicative. The scaling factor (×10) means each percentage point of failure rate increase maps to 10 points on the drift scale. This keeps FailRate on the same magnitude as the other dimensions.
+
+**In the ASCII chart:** Show the ratio as the bar fill percentage and append the raw delta as direction indicator: `^+X.XX` (increasing) or `v-X.XX` (decreasing).
+
 ---
 
 ## Execution Workflow
@@ -255,17 +276,18 @@ This is the primary query that computes per-SPN behavioral profiles and drift me
 - `Add service principal`
 - Any operation containing: "permission", "role", "consent", "oauth", "credential", "certificate", "secret"
 
-### Phase 3: Corroborating Signal Collection (Run in Parallel)
+### Phase 3: Security Alert Correlation
+
+Run Query 4 in parallel with Phase 2 queries for performance.
 
 - **SecurityAlert + SecurityIncident (Query 4):** Check for alerts referencing SPN IDs or names, joined with SecurityIncident for real status/classification. **Never read SecurityAlert.Status directly** — it's always "New".
-- **DeviceNetworkEvents (Query 5):** Check for anomalous network activity from service accounts.
 
 ### Phase 4: Score Computation & Report Generation
 
 1. Compute DriftScore per SPN using the 5-dimension formula
 2. Apply the low-volume denominator floor
 3. Flag any entity exceeding 150% threshold
-4. For flagged entities: assess corroborating evidence (permission changes, alerts, network anomalies)
+4. For flagged entities: assess corroborating evidence (permission changes, alerts)
 5. Generate risk assessment with emoji-coded findings
 6. Render output in the user's selected mode
 
@@ -329,12 +351,16 @@ baseline
     NewLocationCount = array_length(NewLocations)
 | extend
     // Composite Drift Score (weighted)
+    // FailRate uses additive delta→ratio conversion: 100 + delta×10
+    // Negative deltas (improvement) produce values < 100 (contracting)
+    FailRateRatio = 100.0 + FailRateDelta * 10
+| extend
     DriftScore = round(
         (VolumeRatio * 0.30) +
         (ResourceRatio * 0.25) +
         (IPRatio * 0.20) +
         (LocationRatio * 0.15) +
-        (iff(FailRateDelta > 0, 100.0 + FailRateDelta * 10, 100.0) * 0.10)
+        (FailRateRatio * 0.10)
     , 1)
 | project ServicePrincipalName, ServicePrincipalId,
     BL_Days, BL_TotalSignIns, BL_DailyAvg, BL_DistinctResources, BL_DistinctIPs, BL_DistinctLocations, BL_FailRate,
@@ -345,6 +371,8 @@ baseline
     BL_Resources, RC_Resources
 | order by DriftScore desc
 ```
+
+**Post-processing note:** The low-volume denominator floor (`max(BL_DailyAvg, 10)`) is NOT applied in the KQL above — it must be applied during post-processing when computing the final assessment. If `BL_DailyAvg < 10`, recalculate `VolumeRatio` using the floor value and recompute DriftScore. Flag affected SPNs with: "⚠️ Low-volume baseline — ratio may be inflated."
 
 ### Query 2: AuditLog Permission & Credential Changes
 
@@ -361,12 +389,9 @@ AuditLogs
 | extend InBaseline = TimeGenerated < ago(7d)
 | summarize
     BaselineOps = countif(InBaseline),
-    RecentOps = countif(not(InBaseline)),
-    Operations = make_set(OperationName, 20),
-    RecentOperations = make_set_if(OperationName, not(InBaseline), 20)
-    by bin(TimeGenerated, 7d), OperationName
-| order by TimeGenerated desc
-| take 50
+    RecentOps = countif(not(InBaseline))
+    by OperationName
+| order by RecentOps desc
 ```
 
 ### Query 3: Detailed Recent AuditLog Changes
@@ -398,7 +423,7 @@ let relevantAlerts = SecurityAlert
 | where Entities has_any (<SPN_IDS>) or Entities has_any (<SPN_NAMES>)
     or CompromisedEntity has_any (<SPN_NAMES>)
 | summarize arg_max(TimeGenerated, *) by SystemAlertId
-| project SystemAlertId, AlertName, AlertSeverity, ProductName, ProductComponentName, Tactics, TimeGenerated;
+| project SystemAlertId, AlertName, AlertSeverity, ProductName, ProductComponentName, Tactics, Techniques, TimeGenerated;
 SecurityIncident
 | where CreatedTime > ago(97d)
 | summarize arg_max(TimeGenerated, *) by IncidentNumber
@@ -445,29 +470,6 @@ The `ProductName` field in `SecurityAlert` contains the detection product. When 
 
 **Report Rendering:** Group alerts by product using the current branded name. Show **Baseline Alerts vs Recent Alerts** and **Baseline Incidents vs Recent Incidents** columns per product row, plus Severity and Classification. Include a **Total** row. Add a brief 1-2 sentence summary comparing alert volume between periods. Do NOT list individual alert names — keep the table concise at the product level.
 
-### Query 5: DeviceNetworkEvents Correlation
-
-```kql
-// Network activity from service accounts targeting SPN-associated resources
-// Focus on system/service accounts and connections to Microsoft service endpoints
-DeviceNetworkEvents
-| where TimeGenerated > ago(7d)
-| where InitiatingProcessAccountName has_any ("service", "system")
-    or RemoteUrl has_any ("graph.microsoft.com", "management.azure.com",
-        "vault.azure.net", "storage.azure.net")
-| summarize
-    ConnectionCount = count(),
-    DistinctDevices = dcount(DeviceName),
-    Devices = make_set(DeviceName, 10),
-    DistinctRemoteIPs = dcount(RemoteIP),
-    RemoteUrls = make_set(RemoteUrl, 10),
-    Ports = make_set(RemotePort, 10)
-    by InitiatingProcessFileName, InitiatingProcessAccountName
-| where ConnectionCount > 0
-| order by ConnectionCount desc
-| take 20
-```
-
 ---
 
 ## Report Template
@@ -480,10 +482,10 @@ The inline report MUST include these sections in order:
 2. **Ranked Drift Score Table** — All SPNs sorted by DriftScore descending, with per-dimension ratios
 3. **Flagged Entity Deep Dive** (for each **Tier 1** SPN > 150%) — Baseline vs. recent comparison, dimension bar chart, new IPs/resources, corroborating evidence
 4. **Tier 2 Entity Summaries** (if entity scaling applied) — One-line summary per Tier 2 SPN: score, top 3 new resources, new IPs, alert count
-5. **Correlated Signal Summary** — Findings from all 4 data sources in a single table
-5. **Behavioral Baseline Chart** — ASCII bar chart showing all SPNs' daily avg vs. baseline
-6. **Security Assessment** — Emoji-coded findings table with evidence citations
-7. **Verdict Box** — Overall risk level, root cause analysis, recommendations
+5. **Correlated Signal Summary** — AuditLogs and SecurityAlert/Incident findings in a single table
+6. **Behavioral Baseline Chart** — ASCII bar chart showing all SPNs' daily avg vs. baseline
+7. **Security Assessment** — Emoji-coded findings table with evidence citations
+8. **Verdict Box** — Overall risk level, root cause analysis, recommendations
 
 ### Markdown File Report Structure
 
@@ -501,7 +503,7 @@ When outputting to markdown file, include everything from the inline format PLUS
 **Baseline Period:** <start> → <end> (90 days)
 **Recent Period:** <start> → <end> (7 days)
 **Drift Threshold:** 150%
-**Data Sources:** AADServicePrincipalSignInLogs, AuditLogs, DeviceNetworkEvents, SecurityAlert
+**Data Sources:** AADServicePrincipalSignInLogs, AuditLogs, SecurityAlert
 
 ---
 
@@ -555,7 +557,7 @@ Render a box-drawn chart inside a code fence. **Inner width: 58 chars** (every l
 |-----------|--------|----------------|-------------|-------|----------|--------|
 
 <New resources, new IPs, new locations enumeration>
-<Corroborating evidence from AuditLogs, SecurityAlert, DeviceNetworkEvents>
+<Corroborating evidence from AuditLogs, SecurityAlert>
 
 ---
 
@@ -572,7 +574,6 @@ Render a box-drawn chart inside a code fence. **Inner width: 58 chars** (every l
 |-------------|---------|-----------------|
 | AADServicePrincipalSignInLogs | ... | N/A |
 | AuditLogs | ... | N/A |
-| DeviceNetworkEvents | ... | N/A |
 | SecurityAlert / SecurityIncident | <Group by ProductName, translate to current branding> | <Status: New/Active/Closed, Classification: TP/FP/BP> |
 
 ---

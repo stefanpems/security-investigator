@@ -40,7 +40,7 @@ This skill detects **scope drift** — the gradual, often imperceptible expansio
 
 1. **[Critical Workflow Rules](#-critical-workflow-rules---read-first-)** - Start here!
 2. **[Output Modes](#output-modes)** - Inline chat vs. Markdown file
-3. **[Quick Start](#quick-start-tldr)** - 9-step investigation pattern
+3. **[Quick Start](#quick-start-tldr)** - 10-step investigation pattern
 4. **[Drift Score Formula](#drift-score-formula)** - Weighted composite scoring (5 dimensions)
 5. **[Execution Workflow](#execution-workflow)** - Complete 4-phase process
 6. **[Sample KQL Queries](#sample-kql-queries)** - Validated query patterns (Queries 14-22)
@@ -360,7 +360,7 @@ DeviceProcessEvents
 
 1. For each device, extract Baseline and Recent rows
 2. Compute daily averages: `BL_DailyAvg = BL_TotalEvents / baselineDays`, `RC_DailyAvg = RC_TotalEvents / recentDays`
-3. Compute dimension ratios: `VolumeRatio = RC_DailyAvg / max(BL_DailyAvg, floor) * 100`
+3. Compute dimension ratios: `VolumeRatio = RC_DailyAvg / max(BL_DailyAvg, 10) * 100`
 4. Apply the Device formula: `DriftScore = 0.30×Volume + 0.25×Processes + 0.15×Accounts + 0.20×Chains + 0.10×Companies`
 5. Handle edge cases:
    - Device in baseline only (no recent data): Check if data ingestion boundary or genuine silence
@@ -401,6 +401,8 @@ DeviceProcessEvents
 
 **Single-Device Mode:** Add `| where DeviceName =~ '<DEVICE_NAME>'` to both the baseline and recent subqueries. Then expand to show full process details including `ProcessCommandLine` and `FolderPath`.
 
+**Fleet-Wide vs. Per-Device First-Seen Behavior:** This query identifies processes that are globally novel — not seen on *any* device during the baseline. If a process ran on DeviceA during baseline but appears on DeviceB for the first time in the recent window, it will NOT be flagged because the baseline `distinct FileName` covers all devices. This design choice reduces noise (known-good processes aren't re-flagged per device) but may miss per-device novelty. For per-device first-seen analysis, scope the baseline `distinct` by `DeviceName` — note this is significantly more expensive on large fleets.
+
 ### Query 17: Rare Process Chains (Parent→Child Relationships)
 
 ```kql
@@ -415,7 +417,7 @@ let baselineChains = DeviceProcessEvents
 DeviceProcessEvents
 | where TimeGenerated >= recentStart
 | extend Chain = strcat(InitiatingProcessFileName, "→", FileName)
-| join kind=leftanti baselineChains on $left.Chain == $right.Chain
+| join kind=leftanti baselineChains on Chain
 | summarize
     Occurrences = count(),
     Devices = make_set(DeviceName, 20),
@@ -566,7 +568,7 @@ DeviceProcessEvents
 // Corroboration query: Determine actual device uptime days from Heartbeat table
 // Run for the full analysis window (baseline + recent) to see power-on cadence
 // Substitute <DEVICE_NAME> with the target device hostname
-let totalDays = 97; // baseline (90) + recent (7)
+let totalDays = 97; // Intentionally wider than the drift analysis window (default 7d) to capture the device's long-term power-on cadence across 90+ days
 Heartbeat
 | where TimeGenerated > ago(1d * totalDays)
 | where Computer has "<DEVICE_NAME>"
@@ -591,7 +593,7 @@ Heartbeat
 // Corroboration query: Show event volume and diversity per power-on session
 // Confirms events are concentrated in short bursts, not spread evenly
 // Substitute <DEVICE_NAME> with the target device hostname
-let totalDays = 97; // baseline (90) + recent (7)
+let totalDays = 97; // Intentionally wider than the drift analysis window (default 7d) to capture per-session behavior across the device's full power-on history
 DeviceProcessEvents
 | where TimeGenerated > ago(1d * totalDays)
 | where DeviceName has "<DEVICE_NAME>"
@@ -626,12 +628,12 @@ The inline report MUST include these sections in order:
 4. **Flagged Device Deep Dive** (for each **Tier 1** device > 150% or DriftScore=999) — Baseline vs. recent comparison, dimension bar chart, new processes, process chains, account context. For new devices (999): identify as "newly onboarded" and list all processes observed. **For devices with elevated volume ratio:** include Heartbeat uptime pattern (Query 21) and per-session volume table (Query 22) showing power-on cadence and per-session event consistency. Flag intermittent devices with: "⚠️ Intermittent device — online N of M baseline days. Volume ratio reflects power-on burst, not behavioral expansion."
 5. **Tier 2 Device Summaries** (if fleet scaling applied) — One-line summary per Tier 2 device: drift score, top 3 first-seen processes, flag status. No full deep dive.
 6. **First-Seen Process Summary** — Processes appearing only in recent window, grouped by device (Tier 1 + Tier 2 devices)
-6. **Correlated Security Alerts** — SecurityAlert+SecurityIncident correlation for all analyzed devices
-7. **Uptime Context** (if applicable) — For flagged or near-threshold devices, include Heartbeat-derived power-on session table showing each session's duration, event count, and process diversity. This section contextualizes volume-driven drift scores.
-8. **Account Landscape** — Summary of which accounts executed processes, flagging any unexpected contexts
-9. **Notable Command-Line Patterns** — Reconnaissance/lateral movement/persistence command matches
-10. **Security Assessment** — Emoji-coded findings table with evidence citations
-11. **Verdict Box** — Overall fleet risk level, per-device verdicts, recommendations
+7. **Correlated Security Alerts** — SecurityAlert+SecurityIncident correlation for all analyzed devices
+8. **Uptime Context** (if applicable) — For flagged or near-threshold devices, include Heartbeat-derived power-on session table showing each session's duration, event count, and process diversity. This section contextualizes volume-driven drift scores.
+9. **Account Landscape** — Summary of which accounts executed processes, flagging any unexpected contexts
+10. **Notable Command-Line Patterns** — Reconnaissance/lateral movement/persistence command matches
+11. **Security Assessment** — Emoji-coded findings table with evidence citations
+12. **Verdict Box** — Overall fleet risk level, per-device verdicts, recommendations
 
 ### Inline Chat Report Structure (Single-Device)
 
