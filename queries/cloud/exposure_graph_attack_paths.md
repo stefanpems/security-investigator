@@ -1,19 +1,20 @@
 # ExposureGraph Critical Assets & Attack Paths - Complete Query Library
 
 **Created:** 2026-01-15  
-**Platform:** Microsoft Defender XDR  
-**Tables:** ExposureGraphNodes, ExposureGraphEdges  
-**Keywords:** exposure graph, critical assets, attack paths, vulnerabilities, RCE, privilege escalation, internet-facing, cloud resources, Azure, AWS, GCP, identity, storage  
-**MITRE:** T1068, T1190, T1078, TA0004, TA0001  
+**Updated:** 2026-02-12  
+**Platform:** Microsoft Defender XDR | Azure Resource Graph  
+**Tables:** ExposureGraphNodes, ExposureGraphEdges, securityresources (ARG)  
+**Keywords:** exposure graph, critical assets, attack paths, vulnerabilities, RCE, privilege escalation, internet-facing, cloud resources, Azure, AWS, GCP, identity, storage, entra-userCookie, cookie chain, choke point, blast radius, highRiskVulnerabilityInsights, Key Vault, OpenAI, permissions, Owner, Contributor, Secrets Officer  
+**MITRE:** T1068, T1190, T1078, T1550.004, T1539, T1552.001, TA0004, TA0001, TA0006, TA0008  
 **Timeframe:** Point-in-time (snapshot data)
 
 ---
 
 ## 📋 Overview
 
-This guide provides comprehensive KQL queries for finding critical assets and analyzing attack paths using the **ExposureGraphNodes** and **ExposureGraphEdges** tables in Microsoft Defender XDR Advanced Hunting.
+This guide provides comprehensive KQL queries for finding critical assets and analyzing attack paths using the **ExposureGraphNodes** and **ExposureGraphEdges** tables in Microsoft Defender XDR Advanced Hunting, plus **Azure Resource Graph** queries for pre-computed cloud attack paths.
 
-**20 production-ready queries** organized into 8 sections for security operations.
+**32 production-ready queries** organized into 12 sections for security operations.
 
 ---
 
@@ -55,6 +56,26 @@ This guide provides comprehensive KQL queries for finding critical assets and an
 ### 8. Schema Inspection (Query 20)
 - **Query 20**: Sample node properties for VMs
 
+### 9. Vulnerable Device Attack Paths — Cookie Chain Analysis (Queries 21-25)
+- **Query 21**: Devices with high-risk vulnerability insights (entry points)
+- **Query 22**: Direct attack paths: VulnDevice → Cookie → User → Target (by type)
+- **Query 23**: Group-mediated attack paths: VulnDevice → Cookie → User → Group → Target
+- **Query 24**: Discover all intermediary patterns between devices and targets
+- **Query 25**: Comprehensive path count (union direct + group-mediated)
+
+### 10. Attack Path Permission Analysis (Queries 26-28)
+- **Query 26**: Permission role breakdown on attack paths (Reader/Owner/Contributor/Secrets)
+- **Query 27**: High-privilege users with dangerous role assignments via attack paths
+- **Query 28**: Critical users (by Entra criticality level) reachable from vulnerable devices
+
+### 11. Entry Points & Choke Points (Queries 29-30)
+- **Query 29**: Top entry-point devices ranked by blast radius (unique targets reachable)
+- **Query 30**: Choke point detection — users appearing in most attack paths
+
+### 12. Azure Resource Graph — Pre-Computed Attack Paths (Queries 31-32)
+- **Query 31**: All pre-computed attack paths from Azure Resource Graph
+- **Query 32**: Attack path summary by scenario with instance counts
+
 ---
 
 ## 🔑 Key Concepts
@@ -74,10 +95,81 @@ Common categories you'll see:
 - `compute` - Compute resources
 
 ### Edge Labels (Relationships)
-Common edge types:
-- `Can Authenticate As` - Authentication relationships
-- `CanRemoteInteractiveLogonTo` - Remote login permissions
+Common edge types (by volume):
+- `has permissions to` - Azure RBAC role assignments to resources
 - `affecting` - CVE vulnerabilities affecting assets
+- `member of` - Group membership relationships
+- `has role on` - Role assignments (often via groups)
+- `contains` - Parent contains child (e.g., device → entra-userCookie)
+- `can authenticate as` - Identity impersonation via cached credentials
+- `Can Authenticate As` - Authentication relationships (on-prem/identity)
+- `CanRemoteInteractiveLogonTo` - Remote login permissions
+- `has credentials of` - Device has stored credentials for a user
+- `frequently logged in by` - Device frequently used by a user
+
+### Node Property Reference — Key Security Properties
+
+**Devices (`NodeProperties.rawData`):**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `highRiskVulnerabilityInsights` | dynamic | Vulnerability summary — the PRIMARY property for attack path entry points |
+| `highRiskVulnerabilityInsights.hasHighOrCritical` | bool | Device has high/critical severity CVEs |
+| `highRiskVulnerabilityInsights.maxCvssScore` | real | Highest CVSS score across all CVEs on device |
+| `highRiskVulnerabilityInsights.vulnerableToRemoteCodeExecution` | bool | Device has RCE-exploitable CVEs |
+| `highRiskVulnerabilityInsights.vulnerableToPrivilegeEscalation` | bool | Device has privesc-exploitable CVEs |
+| `highRiskVulnerabilityInsights.explotabilityLevels` | dynamic | Breakdown of exploitability categories |
+| `criticalityLevel` | dynamic | Nested object: `{criticalityLevel: int, ruleNames: [...]}` |
+| `exposureScore` | real | Device exposure score (0-100) |
+| `riskScore` | real | Device risk score (0-100) |
+| `publicIP` | string | Public IP if internet-facing |
+| `IsInternetFacing` | bool | Legacy internet-facing flag |
+| `exposedToInternet` | bool | Current internet-facing flag |
+
+> ⚠️ **PITFALL**: `vulnerableToRCE` and `hasVulnerabilities` do NOT reliably exist as top-level properties on most devices. Always use `highRiskVulnerabilityInsights` instead. The legacy `vulnerableToRCE` property exists only on a subset of nodes.
+
+**Users (`NodeProperties.rawData`):**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `criticalityLevel` | dynamic | Nested JSON: `{type, criticalityLevel: int, ruleBasedCriticalityLevel: int, ruleNames: [...]}` |
+| `assignedRoles` | dynamic | Entra ID directory roles assigned to user |
+| `accountEnabled` | bool | Whether account is active |
+| `isActive` | bool | Recent activity flag |
+| `accountUpn` | string | User Principal Name |
+| `hasLeakedCredentials` | bool | Identity Protection leaked credentials flag |
+| `hasAdLeakedCredentials` | bool | AD-sourced leaked credentials flag |
+
+> ⚠️ **PITFALL**: User `criticalityLevel` is a nested JSON string, NOT a plain integer. You must use `parse_json(tostring(NodeProperties.rawData.criticalityLevel)).criticalityLevel` to extract the numeric level.
+
+**Storage Accounts (`NodeProperties.rawData`):**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `containsSensitiveData` | bool | Purview classification: contains sensitive data |
+| `exposedToInternet` | bool | Storage account is publicly accessible |
+| `criticalityLevel` | int | Asset criticality (plain int, not nested) |
+
+**Edge Properties (`EdgeProperties.rawData`):**
+
+| Edge Label | Key Property | Description |
+|------------|-------------|-------------|
+| `has permissions to` | `permissions.roles[]` | Array of RBAC roles: `{name, id, roleAssignmentId, actions, dataActions}` |
+| `has permissions to` | `permissions.evidence` | Node IDs and edge IDs forming the permission chain |
+
+### entra-userCookie — The Attack Path Pivot
+
+The `entra-userCookie` node type represents a **cached Entra ID authentication token** stored on a device. This is the critical pivot in identity-based attack paths:
+
+```
+Device (compromised) → contains → entra-userCookie → can authenticate as → User → has permissions to → Azure Resource
+```
+
+**Attack scenario**: If an attacker compromises a device with high-severity vulnerabilities, they can extract cached authentication cookies to impersonate the logged-in user and access any Azure resource that user has permissions to — **without needing the user's password or MFA**.
+
+This maps to MITRE ATT&CK:
+- **T1539**: Steal Web Session Cookie
+- **T1550.004**: Use Alternate Authentication Material: Web Session Cookie
 
 ---
 
@@ -215,18 +307,33 @@ ExposureGraphEdges
 4. **Query 12** - Rank by vulnerability count
 
 ### Attack Path Investigation
-1. **Query 6** - Multi-hop attack paths
+1. **Query 6** - Multi-hop attack paths (RCE → User → Critical Server)
 2. **Query 7** - Hybrid cloud/on-prem paths
 3. **Query 8** - External IP exposure paths
+4. **Query 22** - Cookie chain: VulnDevice → Cookie → User → Azure Resource
+5. **Query 23** - Group-mediated: VulnDevice → Cookie → User → Group → Resource
+6. **Query 24** - Discover ALL intermediary patterns automatically
+7. **Query 25** - Comprehensive deduplicated path count
+
+### Permission & Privilege Analysis
+1. **Query 26** - Role breakdown: who has Reader vs Owner vs Secrets access?
+2. **Query 27** - High-privilege users reachable via attack paths
+3. **Query 28** - Critical users (Global Admin, etc.) exposed by vulnerable devices
+
+### Blast Radius & Choke Points
+1. **Query 29** - Top entry-point devices by blast radius
+2. **Query 30** - Choke point users (highest-impact identity pivots)
 
 ### Identity Risk Assessment
 1. **Query 5** - Users with access to multiple critical devices
 2. **Query 6** - Attack paths involving users
+3. **Query 28** - Critical users reachable from vulnerable devices
 
 ### Cloud Security Posture
 1. **Query 9** - Multi-cloud inventory
 2. **Query 10** - Critical cloud assets
 3. **Query 3** - Cloud VMs with RCE vulns
+4. **Query 31-32** - Azure Resource Graph pre-computed attack paths
 
 ---
 
@@ -375,10 +482,15 @@ See **Query 6** below in the complete query library for multi-hop attack path de
 5. **Use graph-match for complex attack paths** instead of multiple joins
 6. **Check NodeProperties.rawData** for rich security context
 7. **Correlate with SecurityIncident table** to find active threats to critical assets
+8. **Use `highRiskVulnerabilityInsights`** not `vulnerableToRCE` for vulnerability filtering — the former is reliably populated on devices
+9. **User criticality is nested JSON** — always `parse_json(tostring(...))` before extracting `criticalityLevel`
+10. **Edge properties contain RBAC roles** — parse `EdgeProperties.rawData.permissions.roles` for Owner/Contributor/Secrets analysis
+11. **Two attack path sources exist** — ExposureGraph (identity-based device→user→resource) and Azure Resource Graph (cloud-native internet-exposed→resource)
+12. **Union direct + group-mediated paths** for comprehensive coverage — group membership adds ~15-25% more paths
 
 ---
 
-**Last Updated**: 2026-02-02  
+**Last Updated**: 2026-02-12  
 **Query File**: ExposureGraph_CriticalAssets_AttackPaths.kql  
 **Author**: Security Investigation System
 ## 📚 Complete Query Library
@@ -835,4 +947,472 @@ ExposureGraphNodes
 
 ---
 
-**Last Updated**: 2026-02-02
+### SECTION 9: Vulnerable Device Attack Paths — Cookie Chain Analysis
+
+> **Core concept**: When a device has high-severity vulnerabilities, an attacker who compromises it can extract cached `entra-userCookie` tokens to impersonate logged-in users and pivot to ANY Azure resource those users have permissions on — without needing the user's password or MFA. These queries map that blast radius.
+
+#### Query 21: Devices with High-Risk Vulnerability Insights (Entry Points)
+
+**Description**: Find all devices flagged with high-risk vulnerability insights — the entry points for identity-based attack paths  
+**Use Case**: Identify the device population that feeds into attack path analysis  
+**Key Property**: `NodeProperties.rawData.highRiskVulnerabilityInsights`
+
+```kql
+ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| extend 
+    HasHighOrCritical = tostring(NodeProperties.rawData.highRiskVulnerabilityInsights.hasHighOrCritical),
+    MaxCvss = toreal(NodeProperties.rawData.highRiskVulnerabilityInsights.maxCvssScore),
+    VulnToRCE = tostring(NodeProperties.rawData.highRiskVulnerabilityInsights.vulnerableToRemoteCodeExecution),
+    VulnToPrivEsc = tostring(NodeProperties.rawData.highRiskVulnerabilityInsights.vulnerableToPrivilegeEscalation),
+    Criticality = tostring(NodeProperties.rawData.criticalityLevel)
+| project DeviceName = NodeName, MaxCvss, HasHighOrCritical, VulnToRCE, VulnToPrivEsc, Criticality, NodeLabel
+| order by MaxCvss desc
+```
+
+> **⚠️ PITFALL**: Do NOT use `NodeProperties.rawData.vulnerableToRCE` or `NodeProperties.rawData.hasVulnerabilities` — these legacy properties exist only on a subset of devices. The `highRiskVulnerabilityInsights` object is the reliable, comprehensive property. Always check `hasHighOrCritical` within it.
+
+#### Query 22: Direct Attack Paths — VulnDevice → Cookie → User → Target (by Target Type)
+
+**Description**: Map all direct 3-hop identity-based attack paths from vulnerable devices through cached cookies to Azure resources, broken down by target resource type  
+**Use Case**: Understand which Azure resource types are reachable from compromised devices  
+**Pattern**: `Device -[contains]→ entra-userCookie -[can authenticate as]→ User -[has permissions to]→ Target`
+
+```kql
+let VulnDeviceIds = ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| project NodeId;
+ExposureGraphEdges
+| where EdgeLabel in~ ("contains", "can authenticate as", "has permissions to")
+| make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+| graph-match (Device)-[e1]->(Cookie)-[e2]->(User)-[e3]->(Target)
+    where 
+        set_has_element(Device.Categories, "device") and
+        Cookie.NodeLabel =~ "entra-userCookie" and
+        User.NodeLabel =~ "user" and
+        not(Target.NodeLabel in~ ("user", "group", "entra-userCookie", "serviceprincipal"))
+    project DeviceId = Device.NodeId, DeviceName = Device.NodeName, 
+        UserName = User.NodeName, TargetName = Target.NodeName, 
+        TargetLabel = Target.NodeLabel
+| join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+| summarize 
+    TotalPaths = count(),
+    UniqueDevices = dcount(DeviceName),
+    UniqueUsers = dcount(UserName),
+    UniqueTargets = dcount(TargetName)
+    by TargetLabel
+| order by UniqueTargets desc
+```
+
+**Expected target types**: `microsoft.keyvault/vaults`, `microsoft.storage/storageaccounts`, `microsoft.cognitiveservices/accounts`, `microsoft.compute/virtualmachines`, `microsoft.logic/workflows`, `microsoft.containerservice/managedclusters`, `microsoft.kubernetes/connectedclusters`, etc.
+
+#### Query 23: Group-Mediated Attack Paths — VulnDevice → Cookie → User → Group → Target
+
+**Description**: Map 4-hop attack paths where users access resources via group membership (adds ~15-25% more paths vs direct-only)  
+**Use Case**: Capture attack paths that go through Entra ID group RBAC assignments  
+**Pattern**: `Device -[contains]→ Cookie -[can authenticate as]→ User -[member of]→ Group -[has role on]→ Target`
+
+```kql
+let VulnDeviceIds = ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| project NodeId;
+ExposureGraphEdges
+| make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+| graph-match (Device)-[e1]->(Cookie)-[e2]->(User)-[e3]->(Group)-[e4]->(Target)
+    where 
+        set_has_element(Device.Categories, "device") and
+        Cookie.NodeLabel =~ "entra-userCookie" and
+        User.NodeLabel =~ "user" and
+        Group.NodeLabel =~ "group" and
+        not(Target.NodeLabel in~ ("user", "group", "entra-userCookie", "serviceprincipal"))
+    project DeviceId = Device.NodeId, DeviceName = Device.NodeName, 
+        UserName = User.NodeName, GroupName = Group.NodeName,
+        TargetName = Target.NodeName, TargetLabel = Target.NodeLabel,
+        e3Label = e3.EdgeLabel, e4Label = e4.EdgeLabel
+| join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+| summarize 
+    TotalPaths = count(),
+    UniqueDeviceTargetPairs = dcount(strcat(DeviceName, "|", TargetName)),
+    UniqueGroups = dcount(GroupName)
+    by TargetLabel, e3Label, e4Label
+| order by UniqueDeviceTargetPairs desc
+```
+
+#### Query 24: Discover ALL Intermediary Patterns Between Devices and a Target Type
+
+**Description**: Automatically discover every 3-hop path pattern (node labels and edge labels) between vulnerable devices and a specific target resource type  
+**Use Case**: Find attack chain patterns you didn't know existed — critical for comprehensive coverage  
+**Customization**: Change the `TargetType` variable to discover patterns for any resource type
+
+```kql
+// Change the target NodeLabel below to discover patterns for any resource type
+let TargetType = "microsoft.keyvault/vaults";
+let VulnDeviceIds = ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| project NodeId;
+ExposureGraphEdges
+| make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+| graph-match (Device)-[e1]->(N1)-[e2]->(N2)-[e3]->(Target)
+    where set_has_element(Device.Categories, "device") and
+        Target.NodeLabel =~ TargetType
+    project DeviceId = Device.NodeId, DeviceName = Device.NodeName, 
+        N1Label = N1.NodeLabel, N2Label = N2.NodeLabel,
+        e1Label = e1.EdgeLabel, e2Label = e2.EdgeLabel, e3Label = e3.EdgeLabel,
+        TargetName = Target.NodeName
+| join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+| summarize PathCount = count(), 
+    UniqueDeviceTargetPairs = dcount(strcat(DeviceName, "|", TargetName))
+    by N1Label, N2Label, e1Label, e2Label, e3Label
+| order by UniqueDeviceTargetPairs desc
+```
+
+**Known patterns discovered** (for Key Vaults):
+
+| N1 Label | N2 Label | Edge Chain | Typical Volume |
+|----------|----------|------------|----------------|
+| `entra-userCookie` | `user` | `contains` → `can authenticate as` → `has permissions to` | Highest |
+| `user` | `group` | `has credentials of` → `member of` → `has role on` | Medium |
+| `user` | `group` | `frequently logged in by` → `member of` → `has role on` | Medium |
+| `entra-userCookie` | `user` | `contains` → `can authenticate as` → `has role on` | Low |
+
+#### Query 25: Comprehensive Deduplicated Path Count — Union All Patterns
+
+**Description**: Count unique (device, target) pairs across ALL attack path patterns (direct + group-mediated) for accurate deduplication  
+**Use Case**: Get accurate path counts that approximate what the Defender portal shows  
+**Customization**: Change `TargetNodeLabelFilter` for different resource types
+
+```kql
+// Comprehensive: Union direct + group-mediated paths for total unique pairs
+// Change TargetNodeLabelFilter below for different resource types
+let TargetNodeLabelFilter = "microsoft.keyvault/vaults";
+let VulnDeviceIds = ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| project NodeId;
+// Pattern A: 3-hop direct (Device→N1→N2→Target)
+let ThreeHop = ExposureGraphEdges
+| make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+| graph-match (Device)-[e1]->(N1)-[e2]->(N2)-[e3]->(Target)
+    where set_has_element(Device.Categories, "device") and
+        Target.NodeLabel =~ TargetNodeLabelFilter
+    project DeviceId = Device.NodeId, DeviceName = Device.NodeName, TargetName = Target.NodeName
+| join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+| distinct DeviceName, TargetName;
+// Pattern B: 4-hop via group (Device→N1→N2→N3→Target)
+let FourHop = ExposureGraphEdges
+| make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+| graph-match (Device)-[e1]->(N1)-[e2]->(N2)-[e3]->(N3)-[e4]->(Target)
+    where set_has_element(Device.Categories, "device") and
+        Target.NodeLabel =~ TargetNodeLabelFilter
+    project DeviceId = Device.NodeId, DeviceName = Device.NodeName, TargetName = Target.NodeName
+| join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+| distinct DeviceName, TargetName;
+union ThreeHop, FourHop
+| distinct DeviceName, TargetName
+| summarize TotalUniquePathPairs = count()
+```
+
+> **Portal reconciliation note**: The Defender portal counts attack path "instances" using a proprietary deduplication engine. Your KQL counts may differ by 5-10% because the portal may use additional intermediary patterns or different deduplication logic. Getting within 90-95% match is expected.
+
+---
+
+### SECTION 10: Attack Path Permission Analysis
+
+> These queries show not just that a path EXISTS, but what PERMISSIONS the attacker would gain. An attack path to Key Vault with `Reader` is very different from one with `Key Vault Secrets Officer`.
+
+#### Query 26: Permission Role Breakdown on Attack Paths
+
+**Description**: Break down RBAC roles on attack path edges to show what permissions users actually have on target resources  
+**Use Case**: Distinguish low-risk (Reader) from critical (Owner/Secrets Officer) attack paths  
+**Customization**: Change the `TargetNodeLabelFilter` for different resource types
+
+```kql
+// Change target filter below for different resource types
+let TargetNodeLabelFilter = "microsoft.keyvault/vaults";
+let VulnDeviceIds = ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| project NodeId;
+ExposureGraphEdges
+| where EdgeLabel == "has permissions to"
+| where TargetNodeId in (
+    (ExposureGraphNodes | where NodeLabel =~ TargetNodeLabelFilter | project NodeId)
+)
+| extend roles = parse_json(tostring(EdgeProperties.rawData)).permissions.roles
+| mv-expand role = roles
+| extend RoleName = tostring(role.name)
+| join kind=inner (
+    ExposureGraphEdges
+    | make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+    | graph-match (Device)-[e1]->(Cookie)-[e2]->(User)
+        where set_has_element(Device.Categories, "device") and
+            Cookie.NodeLabel =~ "entra-userCookie" and User.NodeLabel =~ "user"
+        project DeviceId = Device.NodeId, UserId = User.NodeId
+    | join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+    | distinct UserId
+) on $left.SourceNodeId == $right.UserId
+| summarize PathCount = count(), UniqueUsers = dcount(SourceNodeId), UniqueTargets = dcount(TargetNodeId) 
+    by RoleName
+| order by PathCount desc
+```
+
+**Risk interpretation for Key Vault roles:**
+
+| Role | Risk | Can Access Secrets? |
+|------|------|-------------------|
+| 🔴 Key Vault Secrets Officer | Critical | Read, write, delete ALL secrets |
+| 🔴 Key Vault Secrets User | Critical | Read ALL secrets |
+| 🔴 Owner | Critical | Full control including IAM |
+| 🟠 Contributor | High | Write access, can modify config |
+| 🟡 Reader | Low | Metadata only, cannot read secrets |
+
+#### Query 27: High-Privilege Users Reachable via Attack Paths
+
+**Description**: Identify users with Owner, Contributor, or Secrets access to resources who are reachable from vulnerable devices  
+**Use Case**: Highest-priority remediation — these attack paths grant dangerous write/admin access  
+**Customization**: Change the `TargetNodeLabelFilter` and role filter list for different resource types
+
+```kql
+// Change target filter below for different resource types
+let TargetNodeLabelFilter = "microsoft.keyvault/vaults";
+let VulnDeviceIds = ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| project NodeId;
+ExposureGraphEdges
+| where EdgeLabel == "has permissions to"
+| where TargetNodeId in (
+    (ExposureGraphNodes | where NodeLabel =~ TargetNodeLabelFilter | project NodeId)
+)
+| extend roles = parse_json(tostring(EdgeProperties.rawData)).permissions.roles
+| mv-expand role = roles
+| extend RoleName = tostring(role.name)
+| where RoleName in ("Owner", "Contributor", "Key Vault Secrets User", "Key Vault Secrets Officer",
+    "Storage Blob Data Contributor", "Storage Blob Data Owner")
+| join kind=inner (
+    ExposureGraphEdges
+    | make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+    | graph-match (Device)-[e1]->(Cookie)-[e2]->(User)
+        where set_has_element(Device.Categories, "device") and
+            Cookie.NodeLabel =~ "entra-userCookie" and User.NodeLabel =~ "user"
+        project DeviceId = Device.NodeId, DeviceName = Device.NodeName, 
+            UserId = User.NodeId, UserName = User.NodeName
+    | join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+    | distinct UserId, UserName, DeviceName
+) on $left.SourceNodeId == $right.UserId
+| join kind=inner (
+    ExposureGraphNodes | where NodeLabel =~ TargetNodeLabelFilter 
+    | project TargetNodeId = NodeId, TargetName = NodeName
+) on TargetNodeId
+| summarize 
+    Roles = make_set(RoleName), 
+    TargetCount = dcount(TargetName), 
+    Targets = make_set(TargetName), 
+    Devices = make_set(DeviceName) 
+    by UserName
+| order by TargetCount desc
+```
+
+#### Query 28: Critical Users (by Entra Criticality) Reachable from Vulnerable Devices
+
+**Description**: Find users with high Entra ID criticality levels (Global Admins, Security Admins, etc.) who are reachable from devices with high-severity vulnerabilities  
+**Use Case**: THE most dangerous attack paths — compromising these users grants broad tenant-level access
+
+```kql
+let VulnDeviceIds = ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| project NodeId;
+ExposureGraphEdges
+| make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+| graph-match (Device)-[e1]->(Cookie)-[e2]->(User)
+    where set_has_element(Device.Categories, "device") and
+        Cookie.NodeLabel =~ "entra-userCookie" and User.NodeLabel =~ "user"
+    project DeviceId = Device.NodeId, DeviceName = Device.NodeName, 
+        UserName = User.NodeName, 
+        UserCritRaw = tostring(User.NodeProperties.rawData.criticalityLevel),
+        MaxCvss = toreal(Device.NodeProperties.rawData.highRiskVulnerabilityInsights.maxCvssScore)
+| join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+| where isnotempty(UserCritRaw) and UserCritRaw != "{}"
+| extend UserCritLevel = toint(parse_json(UserCritRaw).criticalityLevel),
+    CritRules = tostring(parse_json(UserCritRaw).ruleNames)
+| distinct DeviceName, UserName, UserCritLevel, CritRules, MaxCvss
+| order by UserCritLevel asc, UserName asc
+```
+
+**Criticality levels (lower = more critical):**
+
+| Level | Meaning | Typical Roles |
+|-------|---------|---------------|
+| 🔴 0 | Highest criticality | Global Administrator, highly critical assets |
+| 🟠 1 | High criticality | Security Admin, Compliance Admin, SharePoint Admin |
+| 🟡 2-3 | Medium criticality | Various admin roles |
+
+> **Remediation priority**: A criticality-0 user (Global Admin) reachable from a CVSS 9.8 device is an **immediate, critical risk**. The attacker gains full tenant control by compromising a single vulnerable endpoint.
+
+> **⚠️ PITFALL**: User `criticalityLevel` is a nested JSON string, NOT a plain integer. You must use `parse_json(tostring(...)).criticalityLevel` to extract the numeric level. Direct `toint()` on the raw property will return null.
+
+---
+
+### SECTION 11: Attack Path Entry Points & Choke Points
+
+#### Query 29: Top Entry-Point Devices by Blast Radius
+
+**Description**: Rank vulnerable devices by how many unique Azure resources an attacker could reach by compromising them  
+**Use Case**: Prioritize vulnerability remediation by actual impact — a device reaching 465 targets is more urgent than one reaching 10
+
+```kql
+let VulnDeviceIds = ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| project NodeId, MaxCvss = toreal(NodeProperties.rawData.highRiskVulnerabilityInsights.maxCvssScore);
+ExposureGraphEdges
+| make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+| graph-match (Device)-[e1]->(Cookie)-[e2]->(User)-[e3]->(Target)
+    where set_has_element(Device.Categories, "device") and
+        Cookie.NodeLabel =~ "entra-userCookie" and User.NodeLabel =~ "user" and
+        not(Target.NodeLabel in~ ("user", "group", "entra-userCookie", "serviceprincipal"))
+    project DeviceId = Device.NodeId, DeviceName = Device.NodeName, 
+        UserName = User.NodeName,
+        TargetName = Target.NodeName, TargetLabel = Target.NodeLabel
+| join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+| summarize 
+    UniqueTargets = dcount(TargetName),
+    UniqueUsers = dcount(UserName),
+    TargetTypes = make_set(TargetLabel),
+    KVs = dcountif(TargetName, TargetLabel =~ "microsoft.keyvault/vaults"),
+    OpenAI = dcountif(TargetName, TargetLabel =~ "microsoft.cognitiveservices/accounts"),
+    Storage = dcountif(TargetName, TargetLabel =~ "microsoft.storage/storageaccounts")
+    by DeviceName, MaxCvss
+| order by UniqueTargets desc
+| take 20
+```
+
+#### Query 30: Choke Point Detection — Users in Most Attack Paths
+
+**Description**: Find users who appear as identity pivots in the most attack paths — these are choke points where remediation has maximum impact  
+**Use Case**: Locking down credentials for a top choke-point user blocks MANY attack paths at once
+
+```kql
+let VulnDeviceIds = ExposureGraphNodes
+| where set_has_element(Categories, "device")
+| where isnotnull(NodeProperties.rawData.highRiskVulnerabilityInsights)
+| project NodeId;
+ExposureGraphEdges
+| make-graph SourceNodeId --> TargetNodeId with ExposureGraphNodes on NodeId
+| graph-match (Device)-[e1]->(Cookie)-[e2]->(User)-[e3]->(Target)
+    where set_has_element(Device.Categories, "device") and
+        Cookie.NodeLabel =~ "entra-userCookie" and User.NodeLabel =~ "user" and
+        not(Target.NodeLabel in~ ("user", "group", "entra-userCookie", "serviceprincipal"))
+    project DeviceId = Device.NodeId, DeviceName = Device.NodeName, 
+        UserName = User.NodeName, TargetName = Target.NodeName,
+        UserCritRaw = tostring(User.NodeProperties.rawData.criticalityLevel)
+| join kind=inner VulnDeviceIds on $left.DeviceId == $right.NodeId
+| summarize 
+    UniqueTargets = dcount(TargetName),
+    UniqueDevices = dcount(DeviceName),
+    TotalPaths = count(),
+    UserCritRaw = take_any(UserCritRaw)
+    by UserName
+| extend UserCritLevel = toint(parse_json(UserCritRaw).criticalityLevel),
+    CritRules = tostring(parse_json(UserCritRaw).ruleNames)
+| project UserName, UserCritLevel, CritRules, UniqueTargets, UniqueDevices, TotalPaths
+| order by UniqueTargets desc
+| take 15
+```
+
+**Remediation actions for choke points:**
+1. 🔴 Enforce phishing-resistant MFA (FIDO2/passkeys) for all choke-point users
+2. 🔴 Enable token protection / CAE continuous access evaluation
+3. 🟠 Reduce standing permissions — convert to PIM-eligible with approval workflows
+4. 🟠 Apply Conditional Access: require compliant/managed devices for privileged access
+5. 🟡 Monitor choke-point users with custom Sentinel analytics rules for anomalous sign-ins
+
+---
+
+### SECTION 12: Azure Resource Graph — Pre-Computed Attack Paths
+
+> **Two complementary data sources**: ExposureGraph (Sections 9-11 above) covers identity-based attack paths from devices through users to cloud resources. Azure Resource Graph covers **pre-computed cloud-native attack paths** from internet-exposed entry points to critical resources. Together they provide complete coverage.
+
+> **⚠️ Execution note**: These are NOT KQL queries for Advanced Hunting. They run via Azure CLI `az graph query` against the Azure Resource Graph.
+
+#### Query 31: All Pre-Computed Attack Paths from Azure Resource Graph
+
+**Description**: Retrieve all attack paths pre-computed by Microsoft Defender for Cloud  
+**Use Case**: Get named attack scenarios with descriptions, attack stories, and remediation guidance  
+**Execution**: Azure CLI (not Advanced Hunting)
+
+```bash
+az graph query -q "
+  securityresources
+  | where type == 'microsoft.security/attackpaths'
+  | extend DisplayName = tostring(properties.displayName),
+      Description = tostring(properties.description),
+      AttackStory = tostring(properties.attackStory),
+      EntryPointType = tostring(properties.graphComponent.entryPointEntityType),
+      TargetType = tostring(properties.graphComponent.targetEntityType)
+  | project DisplayName, Description, AttackStory, EntryPointType, TargetType, properties
+  | order by DisplayName asc
+" --first 1000
+```
+
+**Typical scenarios returned:**
+- `Internet exposed VM with high severity vulnerabilities has permissions to a Key Vault`
+- `Internet exposed API with unauthenticated access has permissions to a storage account`
+- `Internet exposed VM can authenticate to a VM which has access to a storage account`
+
+> **Coverage**: ARG attack paths cover **cloud-only, internet-exposed** scenarios. They do NOT include device → identity → resource paths (those are in ExposureGraph). The "Device with high severity vulnerabilities..." paths visible in the Defender portal come from ExposureGraph, not ARG.
+
+#### Query 32: Attack Path Summary by Scenario with Instance Counts
+
+**Description**: Group pre-computed attack paths by scenario name with counts per scenario  
+**Use Case**: Quick overview of which attack path types exist and their prevalence  
+**Execution**: Azure CLI (not Advanced Hunting)
+
+```bash
+az graph query -q "
+  securityresources
+  | where type == 'microsoft.security/attackpaths'
+  | extend DisplayName = tostring(properties.displayName)
+  | summarize Count = count() by DisplayName
+  | order by Count desc
+" --first 100
+```
+
+**Full remediation detail** for a specific path (includes `graphComponent` with entities, connections, and insights):
+
+```bash
+az graph query -q "
+  securityresources
+  | where type == 'microsoft.security/attackpaths'
+  | where properties.displayName has 'Key Vault'
+  | take 1
+" --first 1 -o json
+```
+
+The `graphComponent` field contains the full attack chain: source entity → intermediate hops → target, with remediation recommendations for each step.
+
+---
+
+### Attack Path Data Source Reference
+
+| Attribute | ExposureGraph (KQL) | Azure Resource Graph (CLI) |
+|-----------|-------------------|---------------------------|
+| **Tool** | `RunAdvancedHuntingQuery` | `az graph query` |
+| **Tables** | ExposureGraphNodes, ExposureGraphEdges | `securityresources` (`microsoft.security/attackpaths`) |
+| **Path types** | Device → Identity → Cloud Resource | Internet → Cloud → Cloud Resource |
+| **Entry points** | Vulnerable managed devices, domain controllers | Internet-exposed VMs, APIs, web apps |
+| **Pivot** | `entra-userCookie` (cached Entra ID token) | Direct cloud resource chains |
+| **Named scenarios** | ❌ Raw graph — you define patterns | ✅ Pre-named: "Internet exposed VM with..." |
+| **Remediation** | ❌ Must determine from edge/role analysis | ✅ Built-in remediation guidance |
+| **Custom patterns** | ✅ Unlimited `graph-match` patterns | ❌ Fixed pre-computed scenarios |
+| **Portal match** | "Device with high severity vulnerabilities..." | "Internet exposed..." |
+| **Deduplication** | Manual: `distinct DeviceName, TargetName` | Pre-computed counts |
+
+---
+
+**Last Updated**: 2026-02-12
