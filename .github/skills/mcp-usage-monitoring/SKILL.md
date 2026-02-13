@@ -1530,7 +1530,7 @@ AzureActivity
 | project TimeGenerated, Caller, CallerIpAddress,
     OperationNameValue, ResourceProviderValue,
     ActivityStatusValue, ClaimsAppId,
-    ResourceGroup, _ResourceId
+    ResourceGroup
 | order by TimeGenerated desc
 ```
 
