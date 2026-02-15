@@ -355,6 +355,31 @@ Execute KQL queries and explore table schemas directly against your Sentinel wor
 - **mcp_sentinel-data_list_sentinel_workspaces**: List all available Sentinel workspace name/ID pairs
 - **Documentation**: https://learn.microsoft.com/en-us/azure/sentinel/datalake/
 
+**⚠️ CRITICAL: Parameter Names (Case-Sensitive)**
+
+| Tool | Parameter | Correct Name | ❌ Common Mistake |
+|------|-----------|--------------|-------------------|
+| `mcp_sentinel-data_query_lake` | Workspace | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `mcp_sentinel-data_search_tables` | Workspace | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `mcp_stefanpe-sent2_analyze_user_entity` | Workspace | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `mcp_stefanpe-sent2_analyze_url_entity` | Workspace | `workspaceId` | `workspace_id`, `WorkspaceId` |
+
+**Example - Correct Usage:**
+```
+mcp_sentinel-data_query_lake(
+  query: "SigninLogs | take 10",
+  workspaceId: "951fd5ab-18a2-40c9-8b77-aca135d16fb9"  ✅ CORRECT
+)
+```
+
+**Example - WRONG (will fail with "specify workspaceId" error):**
+```
+mcp_sentinel-data_query_lake(
+  query: "SigninLogs | take 10",
+  workspace_id: "951fd5ab-..."  ❌ WRONG - uses underscore
+)
+```
+
 ### Microsoft Sentinel Triage MCP
 Incident investigation and threat hunting tools for Defender XDR and Sentinel:
 - **Incident Management**: List/get incidents (`ListIncidents`, `GetIncidentById`), list/get alerts (`ListAlerts`, `GetAlertByID`)

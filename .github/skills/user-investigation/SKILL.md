@@ -363,6 +363,19 @@ When multiple modes are selected (e.g., "markdown and HTML"):
 
 Use these exact patterns with `mcp_sentinel-data_query_lake`. Replace `<UPN>`, `<StartDate>`, `<EndDate>`.
 
+**⚠️ CRITICAL: Sentinel Data Lake MCP Parameter Names**
+
+When calling Sentinel Data Lake MCP tools, use the **exact parameter name** `workspaceId` (camelCase):
+
+| Tool | Parameter | ✅ Correct | ❌ Wrong |
+|------|-----------|-----------|----------|
+| `query_lake` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `search_tables` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `analyze_user_entity` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `analyze_url_entity` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+
+See **copilot-instructions.md → Integration with MCP Servers** for full parameter reference.
+
 **⚠️ CRITICAL: START WITH THESE EXACT QUERY PATTERNS**
 **These queries have been tested and validated. Use them as your PRIMARY reference.**
 

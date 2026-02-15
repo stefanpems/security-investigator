@@ -79,6 +79,19 @@ This agent performs comprehensive security analysis on honeypot servers to asses
 
 ### Phase 1: Query Failed Connections (PARALLEL)
 
+**⚠️ CRITICAL: Sentinel Data Lake MCP Parameter Names**
+
+When calling Sentinel Data Lake MCP tools, use the **exact parameter name** `workspaceId` (camelCase):
+
+| Tool | Parameter | ✅ Correct | ❌ Wrong |
+|------|-----------|-----------|----------|
+| `query_lake` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `search_tables` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `analyze_user_entity` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `analyze_url_entity` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+
+See **copilot-instructions.md → Integration with MCP Servers** for full parameter reference.
+
 **Execute ALL THREE queries in parallel using `mcp_sentinel-data_query_lake`:**
 
 #### Query 1A: SecurityEvent (Windows Security Logs)

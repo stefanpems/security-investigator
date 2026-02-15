@@ -553,6 +553,19 @@ Collect:
 **Execution tool:** `mcp_sentinel-data_query_lake` — queries use `TimeGenerated` (Data Lake column). `CloudAppEvents` is available on both Data Lake (90d retention) and Advanced Hunting (30d, uses `Timestamp`). **Always try Data Lake first** for full retention coverage.  
 **Filter:** `ActionType contains "Sentinel"` or `ActionType contains "KQL"`. RecordType is inside `RawEventData` (not a top-level column) — extract with `parse_json(tostring(RawEventData)).RecordType`. RecordType 403 = MCP tools, 379 = Direct KQL.
 
+**⚠️ CRITICAL: Sentinel Data Lake MCP Parameter Names**
+
+When calling Sentinel Data Lake MCP tools, use the **exact parameter name** `workspaceId` (camelCase):
+
+| Tool | Parameter | ✅ Correct | ❌ Wrong |
+|------|-----------|-----------|----------|
+| `query_lake` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `search_tables` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `analyze_user_entity` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `analyze_url_entity` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+
+See **copilot-instructions.md → Integration with MCP Servers** for full parameter reference.
+
 **⚠️ MANDATORY:** Execute Query 20 against `query_lake` before reporting any gap. If the query returns 0 results or table-not-found, THEN report the gap. Do NOT skip this phase based on assumptions about E5 licensing or Purview configuration — the table may be populated even without explicit Purview setup.
 
 **Audit Path:** Sentinel Data Lake MCP tools are NOT audited via `LAQueryLogs` — they are tracked through Purview unified audit log, surfaced in the `CloudAppEvents` table. RecordType 403 (inside `RawEventData`) = Sentinel AI Tool activities, RecordType 379 = KQL activities.

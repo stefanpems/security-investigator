@@ -571,6 +571,19 @@ queries/email/email_threat_detection.md
 
 ### mcp_sentinel-data_query_lake
 
+**⚠️ CRITICAL: Sentinel Data Lake MCP Parameter Names**
+
+When calling Sentinel Data Lake MCP tools, use the **exact parameter name** `workspaceId` (camelCase):
+
+| Tool | Parameter | ✅ Correct | ❌ Wrong |
+|------|-----------|-----------|----------|
+| `query_lake` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `search_tables` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `analyze_user_entity` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+| `analyze_url_entity` | Workspace ID | `workspaceId` | `workspace_id`, `WorkspaceId` |
+
+See **copilot-instructions.md → Integration with MCP Servers** for full parameter reference.
+
 **Purpose:** Execute KQL queries against live Microsoft Sentinel workspace for validation and testing
 
 **When to use:**
